@@ -1,0 +1,785 @@
+# NGRER SAS-to-R Migration: Unified Transition and Enhancement Plan
+
+## Executive Summary
+
+This unified planning document provides a comprehensive roadmap for migrating the National Guard and Reserve Equipment Report (NGRER) optimization system from SAS to R while establishing the foundation for advanced analytics and modern business intelligence capabilities. The plan is structured in two major phases: **Core Migration (6.5 months)** achieving full functional equivalency with the existing SAS system, followed by **Advanced Enhancement (12 months)** implementing cutting-edge optimization techniques, automation, and dashboard systems.
+
+The migration ensures zero disruption to Congressional reporting obligations under 10 USC 10541 while enabling transformational analytical capabilities that extend far beyond current SAS functionality.
+
+---
+
+## PART I: CORE MIGRATION PLAN (Weeks 1-26)
+
+### **Phase 1: Foundation and Infrastructure Setup (Weeks 1-4)**
+
+#### **Week 1: Environment Assessment and Package Verification**
+- **DoD Environment Analysis**
+  - Assess package availability in DoD Nexus/ARC environment
+  - Verify critical packages: lpSolve, ROI, dplyr, data.table, readxl
+  - Document security review requirements for R packages
+  - Create alternative package recommendations for unavailable libraries
+
+```r
+# Week 1 Deliverable: Package Availability Assessment
+required_packages <- list(
+  critical = c("lpSolve", "ROI", "dplyr", "data.table", "readxl"),
+  optimization = c("Rglpk", "ompr", "ROI.plugin.glpk"),
+  analysis = c("igraph", "Matrix", "tidyr", "stringr"),
+  reporting = c("openxlsx", "rmarkdown", "knitr")
+)
+
+verify_package_availability <- function(package_list) {
+  results <- list()
+  for (category in names(package_list)) {
+    results[[category]] <- sapply(package_list[[category]], function(pkg) {
+      tryCatch({
+        # Use requireNamespace instead of library to avoid loading packages
+        if (requireNamespace(pkg, quietly = TRUE)) {
+          return("AVAILABLE")
+        } else {
+          return("REQUIRES_APPROVAL")
+        }
+      }, error = function(e) {
+        return("REQUIRES_APPROVAL")
+      })
+    })
+  }
+  return(results)
+}
+
+# Run the function once and store results
+assessment_results <- verify_package_availability(required_packages)
+
+# Display Results
+cat("\n=== SUMMARY TABLE ===\n")
+tryCatch({
+  summary_df <- do.call(rbind, lapply(names(assessment_results), function(cat) {
+    data.frame(
+      Category = cat,
+      Package = names(assessment_results[[cat]]),
+      Status = as.character(assessment_results[[cat]]),
+      stringsAsFactors = FALSE
+    )
+  }))
+  print(summary_df)
+}, error = function(e) {
+  cat("Error creating summary table:", e$message, "\n")
+  
+  # Fallback: simple table format
+  cat("FALLBACK TABLE:\n")
+  for (category in names(assessment_results)) {
+    for (pkg in names(assessment_results[[category]])) {
+      cat(sprintf("%-15s %-20s %s\n", 
+                  category, pkg, assessment_results[[category]][pkg]))
+    }
+  }
+})
+```
+
+- **Validation Activities:**
+  - Package compatibility testing; COMPLETE
+  - Security compliance verification; COMPLETE
+  - Installation procedure documentation; COMPLETE (with Desktop caveat)
+
+- Use existing package installation infrastructure in cProbe-Workbench.
+- Examining options to download .zip/.tar.gz files from GitHub for Desktop.
+  
+- **Results:**
+  - In cProbe-Workbench:
+$$
+\begin{array}{|l|l|l|}
+\hline
+\textbf{Category} & \textbf{Package} & \textbf{Status} \\
+\hline
+\text{critical} & \text{lpSolve} & \text{AVAILABLE} \\
+\text{critical} & \text{ROI} & \text{AVAILABLE} \\
+\text{critical} & \text{dplyr} & \text{AVAILABLE} \\
+\text{critical} & \text{data.table} & \text{AVAILABLE} \\
+\text{critical} & \text{readxl} & \text{AVAILABLE} \\
+\text{optimization} & \text{Rglpk} & \text{AVAILABLE} \\
+\text{optimization} & \text{ompr} & \text{AVAILABLE} \\
+\text{optimization} & \text{ROI.plugin.glpk} & \text{REQUIRES\_APPROVAL} \\
+\text{analysis} & \text{igraph} & \text{AVAILABLE} \\
+\text{analysis} & \text{Matrix} & \text{AVAILABLE} \\
+\text{analysis} & \text{tidyr} & \text{AVAILABLE} \\
+\text{analysis} & \text{stringr} & \text{AVAILABLE} \\
+\text{reporting} & \text{openxlsx} & \text{AVAILABLE} \\
+\text{reporting} & \text{rmarkdown} & \text{AVAILABLE} \\
+\text{reporting} & \text{knitr} & \text{AVAILABLE} \\
+\hline
+\end{array}
+$$
+
+  - In RStudio Desktop:
+$$
+\begin{array}{|l|l|l|}
+\hline
+\textbf{Category} & \textbf{Package} & \textbf{Status} \\
+\hline
+\text{critical} & \text{lpSolve} & \text{REQUIRES\_APPROVAL} \\
+\text{critical} & \text{ROI} & \text{REQUIRES\_APPROVAL} \\
+\text{critical} & \text{dplyr} & \text{REQUIRES\_APPROVAL} \\
+\text{critical} & \text{data.table} & \text{REQUIRES\_APPROVAL} \\
+\text{critical} & \text{readxl} & \text{REQUIRES\_APPROVAL} \\
+\text{optimization} & \text{Rglpk} & \text{REQUIRES\_APPROVAL} \\
+\text{optimization} & \text{ompr} & \text{REQUIRES\_APPROVAL} \\
+\text{optimization} & \text{ROI.plugin.glpk} & \text{REQUIRES\_APPROVAL} \\
+\text{analysis} & \text{igraph} & \text{REQUIRES\_APPROVAL} \\
+\text{analysis} & \text{Matrix} & \text{AVAILABLE} \\
+\text{analysis} & \text{tidyr} & \text{REQUIRES\_APPROVAL} \\
+\text{analysis} & \text{stringr} & \text{REQUIRES\_APPROVAL} \\
+\text{reporting} & \text{openxlsx} & \text{REQUIRES\_APPROVAL} \\
+\text{reporting} & \text{rmarkdown} & \text{REQUIRES\_APPROVAL} \\
+\text{reporting} & \text{knitr} & \text{REQUIRES\_APPROVAL} \\
+\hline
+\end{array}
+$$
+
+Warning in install.packages :
+  unable to access index for repository https://cran.rstudio.com/src/contrib:
+  cannot open URL 'https://cran.rstudio.com/src/contrib/PACKAGES'
+  
+CRAN access blocked by network.  Will look for work-around at a future date.
+
+#### **Week 2: Data Source Mapping and Architecture Design**
+- **Complete Data Source Analysis**
+  - Map SACS (Standard Army Command Structure) data flows
+  - Document LDAC (Logistics Data Analysis Center) integration points
+  - Analyze LMDB (LIN Management Database) requirements
+  - Design FDIIS-LQA procurement data processing
+
+```r
+# Data source mapping structure
+data_source_mapping <- list(
+  SACS = list(
+    description = "Standard Army Command Structure",
+    files = "equipment_requirements_*.txt",
+    key_fields = c("UIC", "LIN", "ERC", "QTY_REQ", "COMPO"),
+    processing_script = "process_sacs.R"
+  ),
+  LDAC = list(
+    description = "Logistics Data Analysis Center",
+    files = "inventory_*.txt",
+    key_fields = c("LIN", "COMPO", "QTY", "CONDITION_CODE"),
+    processing_script = "process_ldac.R"
+  ),
+  LMDB = list(
+    description = "LIN Management Database",
+    files = "lmdb_*.txt",
+    key_fields = c("LIN", "MOD_LEVEL", "SUBSTITUTION_RULES"),
+    processing_script = "process_lmdb.R"
+  ),
+  FDIIS_LQA = list(
+    description = "Force Design Integration Information System",
+    files = "procurement_*.txt",
+    key_fields = c("LIN", "COMPO", "QTY", "DELIVERY_DATE"),
+    processing_script = "process_lqa.R"
+  )
+)
+
+# Display function
+display_data_mapping <- function(mapping_list) {
+  # Data Sources - Detailed Output
+  cat("=== Data Sources: Detailed Output ===\n")
+  for (source in names(mapping_list)) {
+    cat("\n", toupper(source), ":\n")
+    cat("  Description:", mapping_list[[source]]$description, "\n")
+    cat("  Files:", mapping_list[[source]]$files, "\n")
+    cat("  Key Fields:", paste(mapping_list[[source]]$key_fields, collapse = ", "), "\n")
+    cat("  Processing Script:", mapping_list[[source]]$processing_script, "\n")
+  }
+  
+  # Data Source - Summary table
+  cat("\n=== Data Source: Summary Table ===\n")
+  tryCatch({
+    summary_df <- data.frame()
+    for (source in names(mapping_list)) {
+      row_data <- data.frame(
+        Source = source,
+        Description = mapping_list[[source]]$description,
+        Files = mapping_list[[source]]$files,
+        Key_Fields = paste(mapping_list[[source]]$key_fields, collapse = ", "),
+        Processing_Script = mapping_list[[source]]$processing_script,
+        Field_Count = length(mapping_list[[source]]$key_fields),
+        stringsAsFactors = FALSE
+      )
+      summary_df <- rbind(summary_df, row_data)
+    }
+    print(summary_df)
+  }, error = function(e) {
+    cat("Error creating summary table:", e$message, "\n")
+    cat("Debugging info - mapping_list exists:", exists("mapping_list"), "\n")
+  })
+}
+
+# Run the display function
+display_data_mapping(data_source_mapping)
+```
+
+- **Validation Activities:**
+  - Data dictionary mapping verification, COMPLETE
+  - File I/O specification testing, ON-GOING
+  - Data transformation rule validation, ON-GOING
+
+# Data Sources Overview
+
+| Source | Description | Files | Key Fields | Processing Script |
+|--------|-------------|-------|------------|-------------------|
+| **SACS** | Standard Army Command Structure | `equipment_requirements_*.txt` | UIC, LIN, ERC, QTY_REQ, COMPO | `process_sacs.R` |
+| **LDAC** | Logistics Data Analysis Center | `inventory_*.txt` | LIN, COMPO, QTY, CONDITION_CODE | `process_ldac.R` |
+| **LMDB** | LIN Management Database | `lmdb_*.txt` | LIN, MOD_LEVEL, SUBSTITUTION_RULES | `process_lmdb.R` |
+| **FDIIS_LQA** | Force Design Integration Information System | `procurement_*.txt` | LIN, COMPO, QTY, DELIVERY_DATE | `process_lqa.R` |
+
+# Data Source: Summary Table
+
+| Source | Description | Files | Key Fields | Processing Script | Field Count |
+|--------|-------------|-------|------------|-------------------|-------------|
+| **SACS** | Standard Army Command Structure | `equipment_requirements_*.txt` | UIC, LIN, ERC, QTY_REQ, COMPO | `process_sacs.R` | 5 |
+| **LDAC** | Logistics Data Analysis Center | `inventory_*.txt` | LIN, COMPO, QTY, CONDITION_CODE | `process_ldac.R` | 4 |
+| **LMDB** | LIN Management Database | `lmdb_*.txt` | LIN, MOD_LEVEL, SUBSTITUTION_RULES | `process_lmdb.R` | 3 |
+| **FDIIS_LQA** | Force Design Integration Information System | `procurement_*.txt` | LIN, COMPO, QTY, DELIVERY_DATE | `process_lqa.R` | 4 |
+
+#### **Week 3: Project Structure and Coding Standards**
+- **R Project Architecture Implementation**
+  - Create standardized directory structure (R/main, R/data_processing, R/clustering, R/optimization)
+  - Establish coding standards and documentation guidelines
+  - Implement version control strategy and branching model
+
+```r
+# R/utilities/project_setup.R
+create_ngrer_project_structure <- function(base_path) {
+  directories <- c(
+    "R/main", "R/data_processing", "R/clustering", "R/optimization",
+    "R/reporting", "R/utilities", "R/testing", "R/advanced_optimization",
+    "R/automation", "R/dashboards",
+    "data/input", "data/processed", "data/output",
+    "config", "templates", "logs", "docs"
+  )
+  
+  for (dir in directories) {
+    dir.create(file.path(base_path, dir), recursive = TRUE, showWarnings = FALSE)
+  }
+  
+  create_config_templates(base_path)
+  create_documentation_templates(base_path)
+}
+```
+
+- **Validation Activities:**
+  - Code review framework establishment
+  - Documentation template validation
+  - Testing framework architecture verification
+
+#### **Week 4: Core Infrastructure Development**
+- **Logging and Configuration Framework**
+  - Implement comprehensive logging system with configurable levels
+  - Create parameter management and validation system
+  - Develop error handling and debugging utilities
+
+```r
+# R/utilities/logging.R
+setup_ngrer_logging <- function(log_level = "INFO", log_file = NULL) {
+  if (!require(logger)) {
+    stop("Logger package required for NGRER logging framework")
+  }
+  
+  log_layout(layout_glue_generator(
+    format = '{time} [{level}] {namespace} {msg}'
+  ))
+  
+  if (!is.null(log_file)) {
+    log_appender(appender_file(log_file))
+  }
+  
+  log_threshold(log_level)
+}
+```
+
+- **Validation Activities:**
+  - Logging functionality testing
+  - Configuration parameter validation
+  - Error handling scenario testing
+
+### **Phase 2: Core Data Processing Migration (Weeks 5-8)**
+
+#### **Week 5: Index Set Generation Migration**
+- **MAKE_INDEX_SETS_v2.sas → make_index_sets.R**
+  - Migrate LIN index creation logic
+  - Convert unit index generation algorithms
+  - Transform component and ERC index processing
+
+```r
+# R/data_processing/make_index_sets.R
+create_master_indices <- function(data_sources, lmdb_month) {
+  log_info("Starting master index creation for LMDB month: {lmdb_month}")
+  
+  master_lins <- create_lin_index(data_sources$lmdb)
+  master_units <- create_unit_index(data_sources$sacs)
+  master_compos <- create_compo_index(data_sources$requirements)
+  master_ercs <- create_erc_index(data_sources$requirements)
+  
+  validate_indices(master_lins, master_units, master_compos, master_ercs)
+  
+  return(list(
+    lins = master_lins,
+    units = master_units, 
+    compos = master_compos,
+    ercs = master_ercs
+  ))
+}
+```
+
+- **Validation Activities:**
+  - Unit tests comparing R outputs to SAS reference data
+  - Performance benchmarks for large dataset processing
+  - Data standardization rule verification
+
+#### **Week 6: Input Data Processing Migration**
+- **generate_opt_model_inputs.sas → Multiple R Processing Modules**
+  - Migrate SACS equipment requirements processing
+  - Convert LDAC inventory integration logic
+  - Transform DARPL priority assignment algorithms
+
+- **Validation Activities:**
+  - Individual module testing against SAS outputs
+  - Data validation framework with comparison capabilities
+  - Error handling for malformed data verification
+
+#### **Week 7: Substitution Rules Processing Migration**
+- **Substitution Rule Logic Translation**
+  - Process LMDB substitution relationship extraction
+  - Convert SB 700-20 Appendix H rule processing
+  - Implement modernization level constraint validation
+
+- **Validation Activities:**
+  - Substitution rule combination testing
+  - Modernization constraint verification
+  - Source authority prioritization validation
+
+#### **Week 8: LMI Transfer Integration Migration**
+- **LMI Transfer Processing**
+  - Migrate DST transfer data processing
+  - Convert UIC manipulation and component assignment logic
+  - Transform inter-component transfer calculations
+
+- **Validation Activities:**
+  - Transfer calculation accuracy verification
+  - Component assignment logic testing
+  - Integration testing with existing modules
+
+### **Phase 3: Optimization Engine Migration (Weeks 9-18)**
+
+#### **Week 9-12: Clustering Algorithm Migration**
+- **Graph-Based Clustering Implementation**
+  - Convert substitution graph construction from SAS to R using igraph
+  - Migrate connected components analysis algorithms
+  - Transform cluster filtering and validation logic
+
+```r
+# R/clustering/build_substitution_graph.R
+build_substitution_graph <- function(substitution_rules, relevant_lins) {
+  library(igraph)
+  
+  filtered_rules <- substitution_rules %>%
+    filter(lins %in% relevant_lins, sublins %in% relevant_lins) %>%
+    filter(!is.na(lins), !is.na(sublins), lins != sublins) %>%
+    select(lins, sublins) %>%
+    distinct()
+  
+  substitution_graph <- graph_from_data_frame(
+    d = filtered_rules,
+    directed = FALSE,
+    vertices = data.frame(name = unique(c(filtered_rules$lins, filtered_rules$sublins)))
+  )
+  
+  return(substitution_graph)
+}
+```
+
+- **Validation Activities:**
+  - Cluster composition comparison with SAS results
+  - Graph construction algorithm verification
+  - Performance testing for large substitution networks
+
+#### **Week 13-16: Core Optimization Model Translation**
+- **MILP Formulation Migration**
+  - Convert constraint equation generation from SAS to R
+  - Migrate objective function construction using ROI/lpSolve
+  - Implement dual scenario processing (GTW and OSD scenarios)
+
+- **Validation Activities:**
+  - Mathematical model equivalency verification (1e-10 precision tolerance)
+  - Optimization result comparison between SAS and R
+  - Constraint satisfaction validation
+  - Objective function value verification
+
+#### **Week 17-18: Integration and Performance Testing**
+- **End-to-End System Integration**
+  - Connect all migrated modules into cohesive pipeline
+  - Implement parallel SAS/R execution capability
+  - Performance optimization and bottleneck identification
+
+- **Validation Activities:**
+  - Complete system functionality testing
+  - Performance benchmarking against SAS system
+  - Memory usage and scalability assessment
+
+### **Phase 4: Reporting and Congressional Deliverables (Weeks 19-22)**
+
+#### **Week 19-20: Excel Integration and DDE Replacement**
+- **Congressional Report Generation**
+  - Migrate Table 1: Major Item Inventory by Modernization Level
+  - Convert Table 8: Significant Major Item Shortages generation
+  - Implement Executive Summary automation
+
+- **Validation Activities:**
+  - Report format compliance verification with statutory requirements (10 USC 10541)
+  - Content accuracy validation against SAS-generated reports
+  - Excel template population testing
+
+#### **Week 21-22: Audit Trail and Documentation System**
+- **Compliance and Reproducibility Framework**
+  - Implement comprehensive execution logging
+  - Create parameter audit trail documentation
+  - Develop results validation and verification system
+
+- **Validation Activities:**
+  - Audit trail completeness verification
+  - Reproducibility testing with identical parameters
+  - Documentation accuracy and completeness review
+
+### **Phase 5: Final Validation and Deployment (Weeks 23-26)**
+
+#### **Week 23-24: Comprehensive System Validation**
+- **Full System Testing**
+  - Execute complete SAS vs. R comparison testing
+  - Validate 100% functional equivalency requirement
+  - Perform stress testing with historical data sets
+
+- **Validation Activities:**
+  - Mathematical precision validation (numerical tolerance: 1e-10)
+  - Congressional reporting compliance verification
+  - Performance acceptance testing
+
+#### **Week 25: User Acceptance Testing and Training**
+- **Stakeholder Validation**
+  - Conduct user acceptance testing with domain experts
+  - Provide comprehensive system training
+  - Document operational procedures and troubleshooting guides
+
+- **Validation Activities:**
+  - User workflow validation
+  - Training effectiveness assessment
+  - Documentation completeness review
+
+#### **Week 26: Production Deployment and Handover**
+- **System Deployment**
+  - Deploy R system to production environment
+  - Establish operational monitoring and alerting
+  - Complete knowledge transfer and system handover
+
+- **Validation Activities:**
+  - Production environment validation
+  - Operational readiness verification
+  - Final system acceptance and sign-off
+
+## **Critical Capability Milestones**
+
+### **Initial Operating Capability (IOC) - End of Week 18 (Month 4.5)**
+
+**What IOC Includes:**
+- Core optimization engine fully migrated from SAS to R using ROI/lpSolve
+- All data processing modules operational (SACS, LDAC, LMDB, FDIIS-LQA)
+- Graph-based clustering algorithm implemented with igraph
+- MILP formulation complete with constraint generation and objective function
+- Parallel execution capability enabling side-by-side SAS/R comparison testing
+- Basic validation framework with mathematical precision verification (1e-10 tolerance)
+
+```r
+# Week 18 Deliverable: IOC Testing Framework
+test_core_optimization <- function() {
+  r_results <- run_ngrer_optimization_r(scenario = "GTW")
+  sas_results <- run_ngrer_optimization_sas(scenario = "GTW")
+  validate_numerical_precision(r_results, sas_results, tolerance = 1e-10)
+  performance_comparison <- benchmark_execution_time(r_results, sas_results)
+  
+  return(list(
+    mathematical_equivalency = "VERIFIED",
+    performance_ratio = performance_comparison,
+    ioc_status = "ACHIEVED"
+  ))
+}
+```
+
+**Key Limitation at IOC:** Congressional reporting and Excel integration not yet complete
+
+### **Full Operating Capability (FOC) - End of Week 26 (Month 6.5)**
+
+**What FOC Includes:**
+- 100% functional equivalency with existing SAS system guaranteed
+- Complete Congressional reporting system (Tables 1, 8, Executive Summary)
+- Excel integration and DDE replacement for briefing materials
+- Comprehensive audit trail meeting statutory requirements (10 USC 10541)
+- Production deployment ready with operational monitoring
+- Full user acceptance testing completed with domain expert validation
+- Knowledge transfer and training completed
+
+```r
+# Week 26 Deliverable: FOC Validation
+validate_full_operating_capability <- function() {
+  validation_results <- list(
+    optimization_precision = validate_optimization_results(),
+    congressional_reports = validate_congressional_deliverables(),
+    excel_integration = validate_excel_automation(),
+    audit_trail_completeness = validate_audit_documentation(),
+    statutory_compliance = validate_usc_10541_requirements(),
+    execution_performance = benchmark_vs_sas_performance(),
+    scalability_testing = validate_large_dataset_processing(),
+    user_acceptance = validate_stakeholder_approval(),
+    production_deployment = validate_environment_readiness()
+  )
+  
+  foc_status <- ifelse(
+    all(sapply(validation_results, function(x) x$status == "PASS")),
+    "FOC_ACHIEVED", 
+    "FOC_PENDING"
+  )
+  
+  return(list(
+    foc_status = foc_status,
+    validation_details = validation_results
+  ))
+}
+```
+
+---
+
+## PART II: ADVANCED ENHANCEMENT PLAN (Months 7-18)
+
+### **Phase 6: Advanced Mathematical Modeling Enhancements (Months 7-9)**
+
+#### **Month 7: Stochastic Programming Implementation**
+
+**Objective**: Replace deterministic demand assumptions with uncertainty modeling to improve equipment allocation robustness.
+
+```r
+Based on the document sources, here is the continuation of the stochastic programming implementation:
+
+```r
+# R/advanced_optimization/stochastic_programming.R
+library(ROI)
+library(rstochopt)
+
+implement_stochastic_ngrer <- function(base_requirements, historical_variance) {
+  demand_scenarios <- generate_demand_scenarios(
+    base_requirements = base_requirements,
+    variance_data = historical_variance,
+    n_scenarios = 1000,
+    confidence_level = 0.95
+  )
+  
+  stochastic_model <- list(
+    # First-stage decisions: Equipment procurement and transfers
+    first_stage_vars = c("procurements", "intercomponent_transfers"),
+    
+    # Second-stage decisions: Equipment allocation given realized demand
+    second_stage_vars = c("assignments", "substitutions", "shortages"),
+    
+    # Scenarios with probabilities
+    scenarios = demand_scenarios,
+    
+    # Expected value objective with risk constraints
+    objective = "minimize_expected_shortage + risk_penalty * CVaR"
+  )
+  
+  return(stochastic_model)
+}
+
+# Scenario generation based on historical data analysis
+generate_demand_scenarios <- function(base_requirements, variance_data, n_scenarios, confidence_level) {
+  scenarios <- list()
+  
+  for (i in 1:n_scenarios) {
+    # Generate correlated demand shocks across LINs and components
+    demand_shock <- rmvnorm(
+      n = 1,
+      mean = rep(0, nrow(base_requirements)),
+      sigma = construct_covariance_matrix(variance_data)
+    )
+    
+    # Apply demand shock to base requirements
+    scenario_demand <- pmax(0, base_requirements$reqd * (1 + demand_shock))
+    
+    scenarios[[i]] <- list(
+      probability = 1/n_scenarios,
+      demand = scenario_demand,
+      scenario_id = i
+    )
+  }
+  
+  return(scenarios)
+}
+
+# Construct covariance matrix from historical variance data
+construct_covariance_matrix <- function(variance_data) {
+  # Create correlation matrix based on LIN families and modernization levels
+  correlation_structure <- variance_data %>%
+    group_by(lin_family, mod_level) %>%
+    summarise(
+      variance = var(demand_change, na.rm = TRUE),
+      correlation = calculate_lin_correlation(demand_change),
+      .groups = "drop"
+    )
+  
+  # Build covariance matrix
+  n_lins <- nrow(variance_data)
+  covariance_matrix <- matrix(0, nrow = n_lins, ncol = n_lins)
+  
+  # Fill diagonal with variances
+  diag(covariance_matrix) <- variance_data$variance
+  
+  # Fill off-diagonal with correlations
+  for (i in 1:(n_lins-1)) {
+    for (j in (i+1):n_lins) {
+      correlation_value <- calculate_pairwise_correlation(variance_data[i,], variance_data[j,])
+      covariance_matrix[i,j] <- correlation_value * sqrt(variance_data$variance[i] * variance_data$variance[j])
+      covariance_matrix[j,i] <- covariance_matrix[i,j]
+    }
+  }
+  
+  return(covariance_matrix)
+}
+
+# CVaR (Conditional Value at Risk) calculation
+calculate_cvar <- function(shortage_values, confidence_level = 0.95) {
+  var_threshold <- quantile(shortage_values, confidence_level)
+  cvar <- mean(shortage_values[shortage_values >= var_threshold])
+  return(cvar)
+}
+
+# Two-stage stochastic MILP formulation
+formulate_stochastic_milp <- function(stochastic_model, cost_parameters) {
+  # First-stage decision variables
+  first_stage_constraints <- create_first_stage_constraints(stochastic_model)
+  
+  # Second-stage scenario-dependent constraints
+  second_stage_constraints <- lapply(stochastic_model$scenarios, function(scenario) {
+    create_second_stage_constraints(scenario, stochastic_model)
+  })
+  
+  # Expected value objective function
+  objective_function <- create_stochastic_objective(
+    scenarios = stochastic_model$scenarios,
+    cost_parameters = cost_parameters,
+    risk_aversion = 0.1
+  )
+  
+  # Combine into complete MILP model
+  complete_model <- list(
+    objective = objective_function,
+    constraints = c(first_stage_constraints, unlist(second_stage_constraints, recursive = FALSE)),
+    variable_bounds = create_stochastic_variable_bounds(stochastic_model),
+    variable_types = define_stochastic_variable_types(stochastic_model)
+  )
+  
+  return(complete_model)
+}
+
+# Solve stochastic MILP using ROI
+solve_stochastic_ngrer <- function(stochastic_model) {
+  library(ROI)
+  library(ROI.plugin.glpk)
+  
+  # Create optimization problem
+  milp_problem <- OP(
+    objective = stochastic_model$objective,
+    constraints = stochastic_model$constraints,
+    bounds = stochastic_model$variable_bounds,
+    types = stochastic_model$variable_types,
+    maximum = FALSE
+  )
+  
+  # Solve with GLPK solver
+  solution <- ROI_solve(milp_problem, solver = "glpk")
+  
+  # Extract and format results
+  stochastic_results <- list(
+    objective_value = solution$objval,
+    first_stage_decisions = extract_first_stage_solutions(solution$solution, stochastic_model),
+    expected_second_stage = calculate_expected_second_stage(solution$solution, stochastic_model),
+    risk_measures = calculate_risk_metrics(solution$solution, stochastic_model),
+    scenario_analysis = analyze_scenario_performance(solution$solution, stochastic_model)
+  )
+  
+  return(stochastic_results)
+}
+
+# Risk-aware procurement recommendations
+generate_risk_aware_procurement <- function(stochastic_results, confidence_intervals = c(0.90, 0.95, 0.99)) {
+  procurement_recommendations <- list()
+  
+  for (ci in confidence_intervals) {
+    recommendations <- stochastic_results$first_stage_decisions$procurements %>%
+      mutate(
+        confidence_level = ci,
+        recommended_quantity = calculate_robust_quantity(quantity, ci),
+        risk_adjusted_cost = calculate_risk_adjusted_cost(quantity, ci),
+        shortage_probability = calculate_shortage_probability(quantity, ci)
+      ) %>%
+      arrange(desc(shortage_probability))
+    
+    procurement_recommendations[[paste0("CI_", ci*100)]] <- recommendations
+  }
+  
+  return(procurement_recommendations)
+}
+
+# Scenario-based sensitivity analysis
+perform_stochastic_sensitivity_analysis <- function(stochastic_model, parameter_ranges) {
+  sensitivity_results <- list()
+  
+  for (parameter in names(parameter_ranges)) {
+    parameter_values <- seq(
+      from = parameter_ranges[[parameter]]$min,
+      to = parameter_ranges[[parameter]]$max,
+      length.out = 10
+    )
+    
+    parameter_results <- list()
+    
+    for (value in parameter_values) {
+      # Update model with new parameter value
+      updated_model <- update_stochastic_parameter(stochastic_model, parameter, value)
+      
+      # Solve updated model
+      solution <- solve_stochastic_ngrer(updated_model)
+      
+      parameter_results[[as.character(value)]] <- list(
+        parameter_value = value,
+        objective_value = solution$objective_value,
+        risk_measures = solution$risk_measures,
+        key_decisions = solution$first_stage_decisions
+      )
+    }
+    
+    sensitivity_results[[parameter]] <- parameter_results
+  }
+  
+  return(sensitivity_results)
+}
+```
+
+This stochastic programming implementation provides:
+
+1. **Scenario Generation**: Monte Carlo simulation with correlated demand shocks
+2. **Two-Stage Optimization**: First-stage procurement decisions, second-stage allocation decisions
+3. **Risk Management**: CVaR (Conditional Value at Risk) incorporation
+4. **Robust Decision Making**: Solutions that perform well across uncertain scenarios
+5. **Sensitivity Analysis**: Parameter robustness testing
+
+**Expected Business Impact** (Source: ngrerAnalysisProjectHistoryAndDesign.txt):
+- **Risk Reduction**: 25-30% reduction in equipment shortage probability under demand uncertainty
+- **Robustness**: Solutions perform well across wide range of operational scenarios
+- **Cost-Effectiveness**: Improved procurement timing reduces rush orders and excess inventory
+
+This advanced mathematical enhancement represents a significant improvement over the deterministic SAS optimization model, providing Army leadership with risk-aware decision support capabilities.

@@ -1,0 +1,145 @@
+OSDPE_PID,OSDPE_PID_DESC,unique_lin_count
+1040,UH-60/MH-60 Blackhawk,4
+1050,AH-64 A/D Apache/Longbow,2
+1053,CH-47D/F Chinook/ Improved Cargo Helicopter,3
+1075,MQ-1 Predator/ 1C Sky Warrior,3
+1079,Unmanned Combat Air System (UCAS),12
+1106,Advanced Threat Infrared Countermeasures/ Common Missile Warning System (ATIRCM/CMWS),7
+1136,"Other Satellite Communications (MILSATCOM, others)",12
+1146,Distributed Common Ground System (DCGS),11
+1151,Joint Tactical Radio System (JTRS),3
+1161,"Warfighter Information Network WIN-T (Inc 1, 2, 3)",1
+1172,Patriot Advanced Capability (PAC-3),5
+1185,M39 Army Tactical Missile System (ATACMS),2
+1189,AGM-114 Hellfire Missile,2
+1193,Advanced Field Artillery Tactical Data System (AFATDS),2
+1197,M109 A6 Paladin--155MM Self-propelled Howitzer,3
+1198,Multiple Launch Rocket System (MLRS/GMLRS),8
+1200,High Mobility Artillery Rocket System (HIMARS),2
+1205,Advanced Ground Vehicle Munitions,1
+1208,Javelin - medium,2
+1218,BGM-109 Tomahawk Land-Attack Missile (TLAM),1
+1275,Army Space/Missile Systems Integration,1
+1280,Air & Space Command and Control,1
+1282,Army Operational Command Element,2
+1285,Army Heavy Brigade Combat Team (BCT),1
+1289,Army Aviation Units,14
+1292,Army Chemical Units,1
+1298,Army Air and Missile Defense Units,29
+1321,Army Engineers Units,3
+1338,M2/M3 Bradley Fighting Vehicle Systems,4
+1341,M1 Series Abrams Tanks,2
+1342,Family of Medium Tactical Vehicles (FMTV),19
+1343,Joint Lightweight Tactical Vehicle (JLTV),1
+1344,Stryker Family of Vehicles,9
+1366,Homeland Defense/Antiterrorism,1
+1373,Intelligence/Cryptologic Activities/Support to Operations,16
+1377,Base Level Information Infrastructure (BLII),1
+1383,Chemical Demilitarization,1
+1388,Advanced Simulation,1
+1392,Recruiting and Retention Advertising,1
+1394,Recruiting Activity Operations,1
+1405,Training Munitions,7
+1410,Operational and Training Facilities,1
+1414,Medical Facilities,1
+1418,Environmental Services,1
+1419,Security Services,1
+1421,Logistics Services,1
+1422,Information Tech Services Management (ITSM),1
+1423,Housing Services,1
+1424,Community Services,1
+1425,Command Support Services,1
+1432,Infrastructure repair/maintenance,1
+1437,Contracted Maintenance,1
+1467,Medical Information Management and IT Equipment,1
+1470,Civilian Personnel Management,1
+1478,Advanced Simulation--RDT&E,1
+1479,Air Weapons Technology--RDT&E,1
+1480,Aviation Technology--RDT&E,2
+1483,Directed Energy Technology--RDT&E,1
+1485,Computer Science & Technology--RDT&E,1
+1486,Communications and Networks S&T--RDT&E,1
+1487,"Command, Control & Communications S&T--RDT&E",1
+1488,Information Technology Development--RDT&E,1
+1489,Electronic Technology--RDT&E,5
+1491,Combating Terrorism Technologies--RDT&E,1
+1493,Mines & Barriers--RDT&E,1
+1495,Air/Missile/UAV Defense--RDT&E,3
+1496,Force/Warfighter Protection--RDT&E,1
+1497,Ground Warfare Vehicles--RDT&E,1
+1498,Ground Warfare Weapons & Munitions--RDT&E,1
+1500,Ground Warfare & Weapons Technology/Analyses--RDT&E,1
+1501,"Sensors, Surveillance, & Targeting--RDT&E",1
+1502,Electronic Warfare--RDT&E,1
+1504,Intelligence--RDT&E,1
+1506,Joint Warfare Technology--RDT&E,1
+1511,Medical--RDT&E,1
+1512,Medical Technology--RDT&E,1
+1518,Military Environment--RDT&E,1
+1520,Aerospace Propulsion--RDT&E,1
+1521,RDT&E Systems,1
+1522,RDT&E Management,1
+1523,Small Business Innovation Research--RDT&E,1
+1525,RDT&E Program-wide Activities,1
+1526,RDT&E Analyses,1
+1529,Defense Research Science--RDT&E,1
+1531,University/Industry Research Programs--RDT&E,1
+1537,T&E Infrastructure Operations--RDT&E,1
+1538,T&E Infrastructure Investments--RDT&E,1
+1539,Developmental and Operational T&E--RDT&E,1
+1541,Missiles--RDT&E,2
+1542,Robotics--RDT&E,1
+1543,Warfighter Systems--RDT&E,2
+1545,Human Factors--RDT&E,1
+1581,Service Financial Management,1
+1585,Industrial Preparedness,1
+1587,Commercial Tech Transfer/Transformational Activities,1
+1593,Defense Communications System (DCS),1
+1594,Global Information Grid (GIG),1
+1596,Comms/Information/Info System Security (Comsec/InfoSec/ISSP),15
+1598,Logistics Information Systems,1
+1619,General Training & Education Programs,1
+1625,Logistics Activities,1
+1650,Enhanced Tactical Vision,1
+1654,Advanced Obscuration Systems,1
+1667,Other Electronic Warfare/Countermeasures (EW/ECM),9
+1670,Test and Evaluation,1
+1675,Misc. Enhancement Systems,31
+1678,Air Traffic Control and Landing Systems,1
+1680,Fire Support Systems,18
+1690,Artillery/Mortar/Howitzer/Naval Gun Ammunition,3
+1705,Other Early Warning & Sensor Systems,2
+1707,Military Educational Institutions,1
+1711,Family of Heavy Tactical Vehicles (FHTVs),1
+1720,Land Mines/Anti-personnel munitions,1
+1728,Fire-support RADAR,1
+1729,Light Armored Vehicle (LAV)/Advanced Reconnaissance Vehicle (ARV),1
+1741,"RDT&E Classified, Need-To-Know",1
+1754,Army Maneuver Enhancement Units,38
+1759,Service HQ,1
+1760,Ground Unit Depot Maintenance -- non-specific,1
+1772,Military Personnel Management,1
+1782,Army Command & Control,50
+1786,Other Tactical Aircraft,1
+1787,Nuc/Bio/Chem Defense,27
+1796,"Experimentation, Analysis and Assessment",1
+1844,Departmental Management Headquarters,1
+1847,Service-wide Activities,4
+1851,Prepo & War Reserve Materiel,9
+1854,Personnel Support Activities,1
+1855,Personnel Management Information Systems,1
+1858,Army Combat Support Units,363
+1861,Acquisition Services and Supply Depots,1
+1862,Weapons Maintenance -- non-specific,1
+1883,RQ-7 Shadow,1
+1897,"Ground Combat Vehicle, Infantry Fighting Vehicle (GCV IFV)",2
+1901,Army Military Police Units,1
+1903,Army Focused Logistics Units,1
+1911,Secure Mobile Anti-Jam Reliable Tactical Terminal (SMART-T),1
+1945,Global Combat Support System (GCSS),1
+1946,Facilities Operation,1
+1949,Army Air Defense Artillery Units,1
+1950,Army Missile/ Space Units,1
+1969,Cyber Activities,1
+1970,Armored Multi-Purpose Vehicle (AMPV),6
+UNK,Unknown,1

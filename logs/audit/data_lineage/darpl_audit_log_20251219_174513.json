@@ -1,0 +1,72 @@
+{
+  "start_time": "2025-12-19 17:45:13",
+  "input_file": {
+    "filename": "CUI_20240401_FY25_DARPL_Update.xlsx",
+    "total_rows_read": 11030
+  },
+  "output_file": {
+    "total_rows": 11030,
+    "unique_uics": 11030,
+    "fy_range": "2025 to 2025",
+    "rank_stats": {
+      "Min": 1,
+      "Q1": 1522.25,
+      "Median": 3358.5,
+      "Mean": 3321.373,
+      "Q3": 4906.75,
+      "Max": 7117
+    },
+    "compo_counts": [
+      {
+        "compo_clean": "1",
+        "n": 3877
+      },
+      {
+        "compo_clean": "2",
+        "n": 3447
+      },
+      {
+        "compo_clean": "3",
+        "n": 3383
+      },
+      {
+        "compo_clean": "6",
+        "n": 323
+      }
+    ],
+    "uic_type_counts": [
+      {
+        "uic_type_clean": "AA_UIC",
+        "n": 7985
+      },
+      {
+        "uic_type_clean": "AUGTDA",
+        "n": 501
+      },
+      {
+        "uic_type_clean": "CHILD/NOTES_UIC",
+        "n": 2533
+      },
+      {
+        "uic_type_clean": "NOTIONAL_UIC",
+        "n": 11
+      }
+    ],
+    "typco_counts": [
+      {
+        "typco_clean": "AUGTDA",
+        "n": 501
+      },
+      {
+        "typco_clean": "MTOE",
+        "n": 7756
+      },
+      {
+        "typco_clean": "TDA",
+        "n": 2773
+      }
+    ]
+  },
+  "end_time": "2025-12-19 17:45:13",
+  "elapsed_time_seconds": 0.1652
+}

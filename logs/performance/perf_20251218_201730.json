@@ -1,0 +1,30 @@
+{
+  "sacs": {
+    "duration_sec": 11.636,
+    "memory_mb": 1426.3
+  },
+  "ldac": {
+    "duration_sec": 37.535,
+    "memory_mb": 603.3
+  },
+  "lmdb": {
+    "duration_sec": 0.321,
+    "memory_mb": 1.7
+  },
+  "fdiis": {
+    "duration_sec": 1.142,
+    "memory_mb": 12.9
+  },
+  "darpl": {
+    "duration_sec": 0.34,
+    "memory_mb": 1.4
+  },
+  "substitutions": {
+    "duration_sec": 0.506,
+    "memory_mb": 5.9
+  },
+  "transfers": {
+    "duration_sec": 0.471,
+    "memory_mb": 6.4
+  }
+}

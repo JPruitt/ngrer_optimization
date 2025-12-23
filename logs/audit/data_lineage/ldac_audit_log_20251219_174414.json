@@ -1,0 +1,39 @@
+{
+  "start_time": "2025-12-19 17:44:14",
+  "input_file": {
+    "filename": "AE2S_LIN_DATA_G8_NIIN_File_20250811.xlsx",
+    "total_rows_read": 2889536
+  },
+  "validation_failures": {
+    "invalid_uic_format": 0,
+    "invalid_lin": 0,
+    "invalid_qty": 0,
+    "uic_compo_mismatch_count": 1,
+    "three_digit_uic_counts_by_compo": [
+      {
+        "compo": "1",
+        "count": 307
+      },
+      {
+        "compo": "2",
+        "count": 46
+      },
+      {
+        "compo": "3",
+        "count": 3
+      },
+      {
+        "compo": "6",
+        "count": 3
+      }
+    ]
+  },
+  "output_file": {
+    "total_rows": 2889536,
+    "unique_uics": 16122,
+    "unique_lins": 16649,
+    "total_on_hand_qty": 95837299
+  },
+  "end_time": "2025-12-19 17:44:48",
+  "elapsed_time_seconds": 33.59
+}

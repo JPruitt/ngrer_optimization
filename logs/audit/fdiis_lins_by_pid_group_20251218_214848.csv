@@ -1,0 +1,17 @@
+OSDPE_PID_GROUP,OSD_PID_GROUP_DESC,unique_lin_count
+0,HQ / Management,1
+0,Unknown,3
+1,Air and Missile Defense,31
+10,Logistics,371
+11,Medical,1
+12,Munitions,10
+13,Network,72
+14,Protection,66
+2,Aviation,39
+3,CCMDS / CCSAs / EAs,2
+4,Fires,33
+5,Ground Vehicles / Soldier,38
+6,HQ / Management,34
+7,IMT / Recruiting  / Accessions / PME,1
+8,Installations,1
+9,Intel / EW,31

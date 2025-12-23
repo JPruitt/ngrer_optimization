@@ -1,0 +1,22 @@
+{
+  "pipeline_start_time": "2025-12-18 18:09:15.388252",
+  "data_processing_steps": {
+    "sacs": {
+      "status": "SUCCESS",
+      "files_read": ["cla_eqpdet_roll18-aug-25.txt", "cla_header_roll18-aug-25.txt"],
+      "rows_in": 6331016,
+      "rows_out": 6331016,
+      "fields_kept": ["uic", "lin", "erc", "rqeqp", "aueqp", "compo"]
+    }
+  },
+  "final_output_summary": {
+    "final_rows": 6331016,
+    "unique_uics": 7787,
+    "unique_lins": 2323,
+    "total_required": 59461060,
+    "total_on_hand": 95837299,
+    "total_shortfall": 1591880
+  },
+  "pipeline_end_time": "2025-12-18 18:10:40.816906",
+  "total_elapsed_seconds": 85.4287
+}

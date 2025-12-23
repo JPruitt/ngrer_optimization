@@ -1,0 +1,40 @@
+{
+  "start_time": "2025-12-19 17:43:30",
+  "input_files": {
+    "equipment_file": {
+      "filename": "cla_eqpdet_roll18-aug-25.txt",
+      "runid_date": "2025-08-11",
+      "total_rows": 6331016,
+      "unique_uics": 7787
+    },
+    "header_file": {
+      "filename": "cla_header_roll18-aug-25.txt",
+      "total_rows": 49678,
+      "unique_uics": 8599
+    }
+  },
+  "join_details": {
+    "uics_in_header_deduplicated": 8599,
+    "uics_in_equipment": 7787,
+    "uics_from_header_dropped_in_join": 812
+  },
+  "validation_failures": {
+    "invalid_runid": 0,
+    "invalid_lin": 0,
+    "invalid_erc": 0,
+    "invalid_uic": 0,
+    "invalid_rqeqp": 0,
+    "invalid_aueqp": 0
+  },
+  "output_file": {
+    "filename": "sacs_processed_latest.rds",
+    "total_rows": 6331016,
+    "unique_uics": 7787,
+    "erc_p_lins": 259,
+    "erc_a_lins": 2291,
+    "total_rqeqp": 59461060,
+    "total_aueqp": 56456938
+  },
+  "end_time": "2025-12-19 17:43:41",
+  "elapsed_time_seconds": 11.0006
+}

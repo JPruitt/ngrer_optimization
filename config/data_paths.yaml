@@ -1,0 +1,26 @@
+# config/data_paths.yaml 
+data_paths:
+  # Input paths
+  current_sacs: "data/inputs/current/sacs"
+  current_ldac: "data/inputs/current/ldac"
+  current_lmdb: "data/inputs/current/lmdb"
+  current_fdiis: "data/inputs/current/fdiis"
+  current_darpl: "data/inputs/current/darpl"
+  current_substitutions: "data/inputs/current/substitutions"
+  current_transfers: "data/inputs/current/transfers"
+  
+  # Archive paths
+  archive_base: "data/inputs/archive"
+  
+  # Processing paths
+  r_intermediate: "data/intermediate/r_processing"
+  validation: "data/intermediate/validation"
+  
+  # Output paths
+  r_results: "data/outputs/r_results"
+  congressional_reports: "data/outputs/reports/congressional"
+  executive_reports: "data/outputs/reports/executive"
+  technical_reports: "data/outputs/reports/technical"
+  
+  # Metadata
+  metadata: "data/metadata"

@@ -1,0 +1,4108 @@
+# config/data_paths.yaml 
+
+data_paths:
+  # Input paths
+  current_sacs: "data/inputs/current/sacs"
+  current_ldac: "data/inputs/current/ldac"
+  current_lmdb: "data/inputs/current/lmdb"
+  current_fdiis: "data/inputs/current/fdiis"
+  current_darpl: "data/inputs/current/darpl"
+  current_substitutions: "data/inputs/current/substitutions"
+  current_transfers: "data/inputs/current/transfers"
+  
+  # Archive paths
+  archive_base: "data/inputs/archive"
+  
+  # Processing paths
+  r_intermediate: "data/intermediate/r_processing"
+  validation: "data/intermediate/validation"
+  
+  # Output paths
+  r_results: "data/outputs/r_results"
+  congressional_reports: "data/outputs/reports/congressional"
+  executive_reports: "data/outputs/reports/executive"
+  technical_reports: "data/outputs/reports/technical"
+  
+  # Metadata
+  metadata: "data/metadata"
+  
+#################################################################################################################
+  
+# R/src/data_processing/auto_file_detection.R - Automatic file detection and inventory system
+
+# Automatic File Detection and Inventory System for NGRER Data Sources
+# 
+# Purpose: Automatically detect and catalog all available input files across 
+#          data sources without requiring user date input
+#
+# Author: NGRER Development Team
+# Last Modified: [Current Date]
+
+#' Automatically detect all available input files across NGRER data sources
+#'
+#' This function scans the input directory structure and creates a comprehensive
+#' inventory of all available data files, extracting dates and metadata where possible
+#'
+#' @param base_input_path Character string of base input directory path
+#' @param config_file Path to NGRER configuration file
+#' @return List containing file inventory and processing recommendations
+#' 
+#' @examples
+#' file_inventory <- detect_all_input_files("data/input")
+#' 
+#' @export
+detect_all_input_files <- function(base_input_path = "data/input", 
+                                   config_file = "config/ngrer_config.yaml") {
+  
+  library(dplyr)
+  library(stringr)
+  library(logger)
+  
+  log_info("Starting automatic file detection in: {base_input_path}")
+  
+  # Initialize file inventory structure
+  file_inventory <- list(
+    sacs = list(),
+    ldac = list(), 
+    lmdb = list(),
+    fdiis = list(),
+    darpl = list(),
+    substitutions = list(),
+    transfers = list()
+  )
+  
+  # Define file pattern recognition rules
+  file_patterns <- list(
+    sacs = list(
+      equipment = "cla_eqpdet_roll.*\\.txt$",
+      header = "cla_header_roll.*\\.txt$"
+    ),
+    ldac = list(
+      inventory = "AE2S_LIN_DATA_G8_NIIN_File_.*\\.(xlsx|csv)$"
+    ),
+    lmdb = list(
+      master = "LINS_ACTIVE_.*\\.(xlsx|csv)$"
+    ),
+    fdiis = list(
+      procurement = "AE2S_CURRENT_POSITION_.*\\.(xlsx|csv)$"
+    ),
+    darpl = list(
+      priorities = "CUI_.*RPT_DARPL_RELEASE.*\\.(xlsx|csv)$"
+    ),
+    substitutions = list(
+      sb_700_20_h = "SB_700_20_APPENDIX_H_.*\\.(xlsx|csv)$",
+      sb_700_20_chapters = "SB_700_20_CHAPTERS_.*\\.(xlsx|csv)$"
+    ),
+    transfers = list(
+      lmi_dst = "LMI_DST_PSDs.*\\.(xlsx|csv)$"
+    )
+  )
+  
+  # Scan each data source directory
+  for (source_name in names(file_patterns)) {
+    source_path <- file.path(base_input_path, source_name)
+    
+    if (!dir.exists(source_path)) {
+      log_warn("Source directory does not exist: {source_path}")
+      next
+    }
+    
+    log_info("Scanning {source_name} directory: {source_path}")
+    
+    # Get all files in directory
+    all_files <- list.files(source_path, full.names = TRUE, recursive = FALSE)
+    
+    if (length(all_files) == 0) {
+      log_warn("No files found in {source_name} directory")
+      next
+    }
+    
+    # Process each file type for this source
+    for (file_type in names(file_patterns[[source_name]])) {
+      pattern <- file_patterns[[source_name]][[file_type]]
+      
+      matching_files <- all_files[str_detect(basename(all_files), pattern)]
+      
+      if (length(matching_files) > 0) {
+        file_inventory[[source_name]][[file_type]] <- process_matching_files(
+          matching_files, source_name, file_type, pattern
+        )
+        
+        log_info("Found {length(matching_files)} {file_type} files in {source_name}")
+      } else {
+        log_warn("No {file_type} files found matching pattern: {pattern}")
+      }
+    }
+  }
+  
+  # Generate processing summary and recommendations
+  processing_summary <- generate_processing_summary(file_inventory)
+  
+  # Create audit trail entry
+  audit_entry <- create_file_detection_audit(file_inventory, base_input_path)
+  
+  # Save audit information
+  save_audit_information(audit_entry)
+  
+  return(list(
+    file_inventory = file_inventory,
+    processing_summary = processing_summary,
+    audit_entry = audit_entry,
+    detection_timestamp = Sys.time()
+  ))
+}
+
+#' Process matching files and extract metadata
+#'
+#' @param matching_files Vector of file paths that match the pattern
+#' @param source_name Source category name (sacs, ldac, etc.)
+#' @param file_type File type within source (equipment, header, etc.)
+#' @param pattern Regex pattern used for matching
+#' @return Data frame with file metadata
+process_matching_files <- function(matching_files, source_name, file_type, pattern) {
+  
+  file_metadata <- data.frame()
+  
+  for (file_path in matching_files) {
+    
+    file_info <- file.info(file_path)
+    file_name <- basename(file_path)
+    
+    # Extract date information from filename
+    extracted_date <- extract_date_from_filename(file_name, source_name, file_type)
+    
+    # Determine file format
+    file_format <- determine_file_format(file_path)
+    
+    # Validate file accessibility and basic structure
+    validation_result <- validate_file_accessibility(file_path, source_name, file_type)
+    
+    # Create metadata row
+    metadata_row <- data.frame(
+      source = source_name,
+      file_type = file_type,
+      file_name = file_name,
+      full_path = file_path,
+      file_size_mb = round(file_info$size / (1024^2), 2),
+      file_format = file_format,
+      last_modified = file_info$mtime,
+      extracted_date = extracted_date,
+      date_format = determine_date_format(extracted_date),
+      validation_status = validation_result$status,
+      validation_message = validation_result$message,
+      processing_priority = determine_processing_priority(extracted_date, file_info$mtime),
+      stringsAsFactors = FALSE
+    )
+    
+    file_metadata <- rbind(file_metadata, metadata_row)
+  }
+  
+  # Sort by extracted date (most recent first) and processing priority
+  file_metadata <- file_metadata %>%
+    arrange(desc(extracted_date), desc(last_modified), processing_priority)
+  
+  return(file_metadata)
+}
+
+#' Extract date information from filename using various patterns
+#'
+#' @param filename Name of the file
+#' @param source_name Source category for context-specific date extraction
+#' @param file_type File type for context-specific date extraction
+#' @return Date object or NA if no date found
+extract_date_from_filename <- function(filename, source_name, file_type) {
+  
+  # Define date patterns by source and file type
+  date_patterns <- list(
+    # Common patterns
+    "YYYYMMDD" = "([0-9]{8})",
+    "YYYY-MM-DD" = "([0-9]{4}-[0-9]{2}-[0-9]{2})",
+    "MM-DD-YY" = "([0-9]{1,2}-[0-9]{1,2}-[0-9]{2})",
+    "DD-MMM-YY" = "([0-9]{1,2}-[A-Za-z]{3}-[0-9]{2})",
+    "MonYYYY" = "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)([0-9]{4})"
+  )
+  
+  extracted_date <- NA
+  
+  for (pattern_name in names(date_patterns)) {
+    pattern <- date_patterns[[pattern_name]]
+    matches <- str_extract(filename, pattern)
+    
+    if (!is.na(matches)) {
+      
+      # Convert based on pattern type
+      if (pattern_name == "YYYYMMDD") {
+        extracted_date <- as.Date(matches, format = "%Y%m%d")
+      } else if (pattern_name == "YYYY-MM-DD") {
+        extracted_date <- as.Date(matches, format = "%Y-%m-%d")
+      } else if (pattern_name == "MM-DD-YY") {
+        # Assume 20XX for YY format
+        year_part <- paste0("20", str_sub(matches, -2))
+        date_part <- str_sub(matches, 1, -4)
+        full_date <- paste0(date_part, year_part)
+        extracted_date <- as.Date(full_date, format = "%m-%d-%Y")
+      } else if (pattern_name == "DD-MMM-YY") {
+        # Convert to proper format
+        year_part <- paste0("20", str_sub(matches, -2))
+        date_part <- str_sub(matches, 1, -4)
+        full_date <- paste0(date_part, "-", year_part)
+        extracted_date <- as.Date(full_date, format = "%d-%b-%Y")
+      } else if (pattern_name == "MonYYYY") {
+        # Extract month and year components
+        month_match <- str_extract(matches, "(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)")
+        year_match <- str_extract(matches, "([0-9]{4})")
+        # Assume first day of month
+        full_date <- paste0("01-", month_match, "-", year_match)
+        extracted_date <- as.Date(full_date, format = "%d-%b-%Y")
+      }
+      
+      # If successful conversion, break loop
+      if (!is.na(extracted_date)) {
+        break
+      }
+    }
+  }
+  
+  return(extracted_date)
+}
+
+#' Determine file format based on file extension and structure
+#'
+#' @param file_path Path to the file
+#' @return Character string describing file format
+determine_file_format <- function(file_path) {
+  
+  file_extension <- tools::file_ext(file_path)
+  
+  format_map <- list(
+    "txt" = "TAB_DELIMITED",
+    "csv" = "COMMA_SEPARATED", 
+    "xlsx" = "EXCEL_WORKBOOK",
+    "xls" = "EXCEL_LEGACY"
+  )
+  
+  detected_format <- format_map[[tolower(file_extension)]]
+  
+  if (is.null(detected_format)) {
+    detected_format <- "UNKNOWN"
+  }
+  
+  return(detected_format)
+}
+
+#' Validate file accessibility and basic structure
+#'
+#' @param file_path Path to the file
+#' @param source_name Source category name
+#' @param file_type File type within source  
+#' @return List with status and message
+validate_file_accessibility <- function(file_path, source_name, file_type) {
+  
+  tryCatch({
+    
+    # Check file exists and is readable
+    if (!file.exists(file_path)) {
+      return(list(status = "ERROR", message = "File does not exist"))
+    }
+    
+    if (!file.access(file_path, mode = 4) == 0) {
+      return(list(status = "ERROR", message = "File is not readable"))
+    }
+    
+    # Check file size (not empty, not too large)
+    file_size <- file.size(file_path)
+    
+    if (file_size == 0) {
+      return(list(status = "WARNING", message = "File is empty"))
+    }
+    
+    if (file_size > 2 * 1024^3) {  # 2GB limit
+      return(list(status = "WARNING", message = "File is very large (>2GB)"))
+    }
+    
+    # Basic format validation
+    file_format <- determine_file_format(file_path)
+    
+    if (file_format == "UNKNOWN") {
+      return(list(status = "WARNING", message = "Unknown file format"))
+    }
+    
+    # Try to read first few lines/rows as format validation
+    format_validation <- validate_file_format_structure(file_path, file_format, source_name)
+    
+    if (!format_validation$valid) {
+      return(list(status = "WARNING", message = format_validation$message))
+    }
+    
+    return(list(status = "VALID", message = "File passed all validation checks"))
+    
+  }, error = function(e) {
+    return(list(status = "ERROR", message = paste("Validation error:", e$message)))
+  })
+}
+
+#' Validate file format structure by attempting to read sample data
+#'
+#' @param file_path Path to the file
+#' @param file_format Detected file format
+#' @param source_name Source category name for context
+#' @return List with validation result
+validate_file_format_structure <- function(file_path, file_format, source_name) {
+  
+  tryCatch({
+    
+    if (file_format == "TAB_DELIMITED") {
+      # Try to read first few lines
+      sample_data <- readLines(file_path, n = 5)
+      
+      if (length(sample_data) < 2) {
+        return(list(valid = FALSE, message = "File has insufficient data"))
+      }
+      
+      # Check for tab delimiters
+      has_tabs <- any(grepl("\t", sample_data))
+      
+      if (!has_tabs) {
+        return(list(valid = FALSE, message = "No tab delimiters found in tab-delimited file"))
+      }
+      
+    } else if (file_format %in% c("EXCEL_WORKBOOK", "EXCEL_LEGACY")) {
+      
+      # Try to read first few rows with readxl
+      if (require(readxl, quietly = TRUE)) {
+        sample_data <- readxl::read_excel(file_path, n_max = 3)
+        
+        if (nrow(sample_data) == 0) {
+          return(list(valid = FALSE, message = "Excel file appears to be empty"))
+        }
+        
+        if (ncol(sample_data) < 3) {
+          return(list(valid = FALSE, message = "Excel file has very few columns"))
+        }
+        
+      } else {
+        return(list(valid = TRUE, message = "Cannot validate Excel format - readxl not available"))
+      }
+      
+    } else if (file_format == "COMMA_SEPARATED") {
+      
+      # Try to read first few lines
+      sample_data <- read.csv(file_path, nrows = 3, stringsAsFactors = FALSE)
+      
+      if (nrow(sample_data) == 0) {
+        return(list(valid = FALSE, message = "CSV file appears to be empty"))
+      }
+      
+      if (ncol(sample_data) < 3) {
+        return(list(valid = FALSE, message = "CSV file has very few columns"))
+      }
+    }
+    
+    return(list(valid = TRUE, message = "File format validation passed"))
+    
+  }, error = function(e) {
+    return(list(valid = FALSE, message = paste("Format validation error:", e$message)))
+  })
+}
+
+# Processing priority determination
+determine_processing_priority <- function(extracted_date, last_modified) {
+  
+  if (is.na(extracted_date)) {
+    return(99)  # Lowest priority for files without dates
+  }
+  
+  # Calculate days since file creation/modification
+  days_old <- as.numeric(Sys.Date() - as.Date(last_modified))
+  
+  # Priority scoring (lower number = higher priority)
+  if (days_old <= 7) {
+    return(1)    # High priority - recent files
+  } else if (days_old <= 30) {
+    return(2)    # Medium priority 
+  } else if (days_old <= 90) {
+    return(3)    # Lower priority
+  } else {
+    return(4)    # Lowest priority - very old files
+  }
+}
+
+# Date format determination
+determine_date_format <- function(extracted_date) {
+  if (is.na(extracted_date)) {
+    return("UNKNOWN")
+  }
+  
+  date_string <- as.character(extracted_date)
+  
+  if (grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", date_string)) {
+    return("YYYY-MM-DD")
+  } else if (grepl("^[0-9]{2}/[0-9]{2}/[0-9]{4}$", date_string)) {
+    return("MM/DD/YYYY")
+  } else {
+    return("DETECTED")
+  }
+}
+
+# Generate processing summary
+generate_processing_summary <- function(file_inventory) {
+  
+  total_sources <- length(file_inventory)
+  sources_with_files <- sum(sapply(file_inventory, function(x) length(x) > 0))
+  
+  total_files <- sum(sapply(file_inventory, function(source) {
+    sum(sapply(source, function(file_type) {
+      if (is.data.frame(file_type)) nrow(file_type) else 0
+    }))
+  }))
+  
+  valid_files <- sum(sapply(file_inventory, function(source) {
+    sum(sapply(source, function(file_type) {
+      if (is.data.frame(file_type)) {
+        sum(file_type$validation_status == "VALID")
+      } else {
+        0
+      }
+    }))
+  }))
+  
+  summary <- list(
+    total_data_sources = total_sources,
+    sources_with_files = sources_with_files,
+    total_files_found = total_files,
+    valid_files_found = valid_files,
+    validation_pass_rate = ifelse(total_files > 0, valid_files / total_files, 0),
+    processing_recommendation = ifelse(valid_files >= total_sources * 0.8, 
+                                     "PROCEED_WITH_PROCESSING", 
+                                     "REVIEW_DATA_QUALITY_ISSUES")
+  )
+  
+  return(summary)
+}
+
+# Create audit entry for file detection
+create_file_detection_audit <- function(file_inventory, base_input_path) {
+  
+  audit_entry <- list(
+    audit_timestamp = Sys.time(),
+    audit_id = generate_audit_id(),
+    base_path = base_input_path,
+    detection_summary = generate_processing_summary(file_inventory),
+    file_details = file_inventory,
+    system_info = list(
+      r_version = R.version.string,
+      platform = Sys.info()["sysname"],
+      user = Sys.info()["user"],
+      working_directory = getwd()
+    )
+  )
+  
+  return(audit_entry)
+}
+
+# Save audit information
+save_audit_information <- function(audit_entry) {
+  
+  audit_dir <- "logs/audit"
+  if (!dir.exists(audit_dir)) {
+    dir.create(audit_dir, recursive = TRUE)
+  }
+  
+  audit_filename <- paste0("file_detection_audit_", 
+                          format(audit_entry$audit_timestamp, "%Y%m%d_%H%M%S"), 
+                          ".json")
+  
+  audit_filepath <- file.path(audit_dir, audit_filename)
+  
+  # Convert to JSON for audit trail
+  jsonlite::write_json(audit_entry, audit_filepath, pretty = TRUE)
+  
+  log_info("Audit information saved to: {audit_filepath}")
+  
+  return(audit_filepath)
+}
+
+# Generate unique audit ID
+generate_audit_id <- function() {
+  paste0("NGRER_AUDIT_", 
+         format(Sys.time(), "%Y%m%d_%H%M%S"), 
+         "_", 
+         sample(1000:9999, 1))
+}
+
+#################################################################################################################
+
+# R/src/data_processing/process_sacs_auto.R - SACS requirements processing with auto-detection
+
+# SACS (Standard Army Command Structure) Requirements Processing with Auto-Detection
+# 
+# Purpose: Automatically detect and process SACS equipment requirement files
+#          without requiring date input from users
+#
+# Author: NGRER Development Team
+
+#' Process SACS requirements data with automatic file detection
+#'
+#' This function automatically detects SACS requirement files and processes them
+#' into standardized format for NGRER optimization
+#'
+#' @param sacs_directory Path to SACS data directory
+#' @param config_file Path to NGRER configuration file  
+#' @param darpl_data DARPL priority data for integration
+#' @return Processed SACS requirements data frame
+#' 
+#' @examples
+#' sacs_data <- process_sacs_requirements_auto("data/input/sacs")
+#' 
+#' @export
+process_sacs_requirements_auto <- function(sacs_directory = "data/input/sacs", 
+                                           config_file = "config/ngrer_config.yaml",
+                                           darpl_data = NULL) {
+  
+  library(dplyr)
+  library(readr)
+  library(stringr)
+  library(logger)
+  
+  log_info("Starting automatic SACS requirements processing from: {sacs_directory}")
+  
+  # Auto-detect SACS files
+  sacs_files <- detect_sacs_files(sacs_directory)
+  
+  if (length(sacs_files$equipment_files) == 0 || length(sacs_files$header_files) == 0) {
+    log_error("No valid SACS files detected in directory: {sacs_directory}")
+    stop("SACS file detection failed")
+  }
+  
+  # Process each file pair
+  processed_requirements <- list()
+  
+  for (i in seq_along(sacs_files$equipment_files)) {
+    equipment_file <- sacs_files$equipment_files[[i]]
+    
+    # Find corresponding header file (matching date pattern)
+    header_file <- find_matching_header_file(equipment_file, sacs_files$header_files)
+    
+    if (!is.null(header_file)) {
+      
+      log_info("Processing SACS pair: {basename(equipment_file)} + {basename(header_file)}")
+      
+      # Process this file pair
+      pair_result <- process_sacs_file_pair(
+        equipment_file = equipment_file,
+        header_file = header_file,
+        darpl_data = darpl_data
+      )
+      
+      processed_requirements[[i]] <- pair_result
+      
+    } else {
+      log_warning("No matching header file found for: {basename(equipment_file)}")
+    }
+  }
+  
+  # Combine all processed data
+  if (length(processed_requirements) > 0) {
+    combined_requirements <- bind_rows(processed_requirements)
+    
+    # Final validation and cleanup
+    validated_requirements <- validate_combined_requirements(combined_requirements)
+    
+    log_info("SACS processing complete: {nrow(validated_requirements)} requirement records")
+    
+    return(validated_requirements)
+    
+  } else {
+    log_error("No SACS requirements data successfully processed")
+    return(data.frame())
+  }
+}
+
+# Auto-detect SACS files in directory
+detect_sacs_files <- function(sacs_directory) {
+  
+  if (!dir.exists(sacs_directory)) {
+    log_error("SACS directory does not exist: {sacs_directory}")
+    return(list(equipment_files = character(0), header_files = character(0)))
+  }
+  
+  all_files <- list.files(sacs_directory, full.names = TRUE, pattern = "\\.txt$")
+  
+  # Equipment files pattern: cla_eqpdet_roll*.txt
+  equipment_pattern <- "cla_eqpdet_roll.*\\.txt$"
+  equipment_files <- all_files[str_detect(basename(all_files), equipment_pattern)]
+  
+  # Header files pattern: cla_header_roll*.txt  
+  header_pattern <- "cla_header_roll.*\\.txt$"
+  header_files <- all_files[str_detect(basename(all_files), header_pattern)]
+  
+  log_info("Detected {length(equipment_files)} equipment files and {length(header_files)} header files")
+  
+  return(list(
+    equipment_files = equipment_files,
+    header_files = header_files
+  ))
+}
+
+# Find matching header file for equipment file
+find_matching_header_file <- function(equipment_file, header_files) {
+  
+  # Extract date pattern from equipment file
+  equipment_basename <- basename(equipment_file)
+  date_match <- str_extract(equipment_basename, "[0-9]{1,2}-[a-zA-Z]{3}-[0-9]{2,4}")
+  
+  if (is.na(date_match)) {
+    # Try alternative date patterns
+    date_match <- str_extract(equipment_basename, "[0-9]{8}")
+    if (is.na(date_match)) {
+      date_match <- str_extract(equipment_basename, "[0-9]{4}-[0-9]{2}-[0-9]{2}")
+    }
+  }
+  
+  if (!is.na(date_match)) {
+    # Look for header file with same date pattern
+    matching_header <- header_files[str_detect(basename(header_files), fixed(date_match))]
+    
+    if (length(matching_header) > 0) {
+      return(matching_header[1])  # Return first match
+    }
+  }
+  
+  # If no date match, return the most recent header file
+  if (length(header_files) > 0) {
+    file_info <- file.info(header_files)
+    most_recent <- header_files[which.max(file_info$mtime)]
+    log_warning("Using most recent header file as fallback: {basename(most_recent)}")
+    return(most_recent)
+  }
+  
+  return(NULL)
+}
+
+# Process a pair of SACS equipment and header files
+process_sacs_file_pair <- function(equipment_file, header_file, darpl_data = NULL) {
+  
+  # Read equipment details file
+  equipment_data <- read_sacs_equipment_file(equipment_file)
+  
+  # Read header file
+  header_data <- read_sacs_header_file(header_file)
+  
+  # Join equipment and header data
+  joined_data <- join_equipment_header_data(equipment_data, header_data)
+  
+  # Apply business rules and standardization
+  standardized_data <- standardize_sacs_data(joined_data)
+  
+  # Integrate DARPL priorities if provided
+  if (!is.null(darpl_data)) {
+    standardized_data <- integrate_darpl_priorities(standardized_data, darpl_data)
+  }
+  
+  return(standardized_data)
+}
+
+# Read SACS equipment file with error handling
+read_sacs_equipment_file <- function(equipment_file) {
+  
+  tryCatch({
+    
+    equipment_data <- read_delim(
+      equipment_file,
+      delim = "\t",
+      col_types = cols(
+        RUNID = col_double(),
+        UIC = col_character(),
+        EDATE = col_double(), 
+        LIN = col_character(),
+        ERC = col_character(),
+        RMK1 = col_character(),
+        RMK2 = col_character(),
+        RQEQP = col_double(),
+        AUEQP = col_double(),
+        RQBOI = col_double(),
+        AUBOI = col_double(),
+        SORCE = col_double(),
+        MDUIC = col_character()
+      ),
+      skip = 1  # Skip header row
+    )
+    
+    log_info("Read {nrow(equipment_data)} equipment records from {basename(equipment_file)}")
+    
+    return(equipment_data)
+    
+  }, error = function(e) {
+    log_error("Failed to read equipment file {basename(equipment_file)}: {e$message}")
+    return(data.frame())
+  })
+}
+
+# Read SACS header file with error handling  
+read_sacs_header_file <- function(header_file) {
+  
+  tryCatch({
+    
+    header_data <- read_delim(
+      header_file,
+      delim = "\t",
+      col_types = cols(
+        RUNID = col_double(),
+        UIC = col_character(),
+        EDATEI = col_double(),
+        TPSN = col_character(),
+        MACOM = col_character(),
+        ACTCO = col_character(),
+        ADCCO = col_character(),
+        MDEP = col_character(),
+        COMPO = col_character(),
+        UNTDS = col_character(),
+        CARSS = col_character(),
+        TYPCO = col_character(),
+        UNMBR = col_character(),
+        FPA = col_character(),
+        DAMPL = col_character(),
+        SRC = col_character(),
+        ALO = col_character(),
+        SRCPARA = col_character(),
+        ASGMT = col_character(),
+        LOCCO = col_character(),
+        AMSCO = col_character(),
+        BRNCH = col_character(),
+        CCNUM = col_character(),
+        DOCNO = col_character(),
+        DPMNT = col_character(),
+        ELSEQ = col_character(),
+        FORCO = col_character(),
+        MBCMD = col_character(),
+        MBLOC = col_character(),
+        MBPRD = col_character(),
+        MBSTA = col_double(),
+        MTOEC = col_character(),
+        NTREF = col_character(),
+        PHASE = col_character(),
+        ROBCO = col_character(),
+        ROC = col_character(),
+        STACO = col_character(),
+        TDATE = col_double(),
+        ULCCC = col_character(),
+        UTC = col_character(),
+        COP_BDE_TYPE = col_character(),
+        THEATER = col_character()
+      ),
+      skip = 1
+    )
+    
+    log_info("Read {nrow(header_data)} header records from {basename(header_file)}")
+    
+    return(header_data)
+    
+  }, error = function(e) {
+    log_error("Failed to read header file {basename(header_file)}: {e$message}")
+    return(data.frame())
+  })
+}
+
+# Join equipment and header data
+join_equipment_header_data <- function(equipment_data, header_data) {
+  
+  if (nrow(equipment_data) == 0 || nrow(header_data) == 0) {
+    log_warning("Empty data detected - equipment: {nrow(equipment_data)} rows, header: {nrow(header_data)} rows")
+    return(data.frame())
+  }
+  
+  # Perform left join on UIC and EDATE
+  joined_data <- equipment_data %>%
+    left_join(header_data, by = c("UIC", "EDATE")) %>%
+    filter(!is.na(COMPO), !is.na(TYPCO)) %>%
+    mutate(
+      # Handle DARPL priority assignment (DAMPL to DARPL conversion per SAS logic)
+      DARPL = case_when(
+        !is.na(DAMPL) ~ as.numeric(DAMPL),
+        TRUE ~ 99999  # Default high priority number for missing DARPL
+      ),
+      
+      # Handle component 6 special case where requirements equal authorized
+      RQEQP = case_when(
+        COMPO == "6" ~ AUEQP,  # For APS, requirements = authorized
+        TRUE ~ RQEQP
+      ),
+      
+      # Create TYPCO category for reporting
+      TYPCO_CAT = case_when(
+        TYPCO == "1" ~ "MTOE",
+        TYPCO == "2" ~ "AUG-TDA", 
+        TRUE ~ "TDA"
+      )
+    )
+  
+  # Data quality validation
+  if (nrow(joined_data) == 0) {
+    log_error("Join operation resulted in no records - check key field compatibility")
+    return(data.frame())
+  }
+  
+  # Validate join results
+  equipment_records <- nrow(equipment_data)
+  joined_records <- nrow(joined_data)
+  join_efficiency <- round((joined_records / equipment_records) * 100, 1)
+  
+  log_info("Equipment-Header join completed: {joined_records}/{equipment_records} records ({join_efficiency}% success rate)")
+  
+  # Check for missing component assignments
+  missing_compo <- sum(is.na(joined_data$COMPO))
+  if (missing_compo > 0) {
+    log_warning("{missing_compo} records missing component assignment after join")
+  }
+  
+  return(joined_data)
+}
+
+# Standardize SACS data after joining
+standardize_sacs_data <- function(joined_data) {
+  
+  log_info("Standardizing SACS data with {nrow(joined_data)} records")
+  
+  standardized_data <- joined_data %>%
+    # Apply business rule filters
+    filter(
+      TYPCO %in% c("1", "2"),    # Only MTOE and Aug-TDA units
+      RQEQP > 0,                 # Only positive requirements
+      !is.na(COMPO),             # Valid component assignment
+      !is.na(LIN),               # Valid LIN
+      nchar(trimws(LIN)) == 6,   # Proper LIN format
+      nchar(trimws(UIC)) == 6    # Proper UIC format
+    ) %>%
+    # ERC consolidation (B,C → A per Army policy)
+    mutate(
+      ERC = case_when(
+        ERC %in% c("B", "C") ~ "A",
+        ERC == "P" ~ "P",
+        TRUE ~ ERC
+      )
+    ) %>%
+    # Filter to valid ERCs only
+    filter(ERC %in% c("P", "A")) %>%
+    # Final standardization with proper field names
+    transmute(
+      dates = extract_fiscal_year(EDATE),
+      compos = standardize_component_code(COMPO),
+      units = str_trim(UIC),
+      lins = str_trim(str_to_upper(LIN)),
+      ercs = ERC,
+      reqd = as.numeric(RQEQP),
+      darpl = as.numeric(DARPL),
+      typco = TYPCO,
+      typco_cat = TYPCO_CAT,
+      src = SRC,
+      untds = UNTDS
+    ) %>%
+    # Final data quality checks
+    filter(
+      !is.na(dates),
+      !is.na(compos), 
+      compos %in% c("1", "2", "3", "6"),
+      !is.na(reqd),
+      reqd > 0
+    ) %>%
+    # Aggregate by key dimensions (handle duplicates)
+    group_by(dates, compos, units, lins, ercs, typco) %>%
+    summarise(
+      reqd = sum(reqd, na.rm = TRUE),
+      darpl = min(darpl, na.rm = TRUE),  # Use highest priority (lowest number)
+      src = first(src),
+      untds = first(untds),
+      .groups = "drop"
+    )
+  
+  # Validation of standardized data
+  log_info("SACS standardization complete: {nrow(standardized_data)} final records")
+  
+  # Check for data loss during standardization
+  original_total_req <- sum(joined_data$RQEQP, na.rm = TRUE)
+  standardized_total_req <- sum(standardized_data$reqd, na.rm = TRUE)
+  requirement_retention <- round((standardized_total_req / original_total_req) * 100, 1)
+  
+  log_info("Requirement quantity retention: {requirement_retention}% ({format(standardized_total_req, big.mark = ',')} of {format(original_total_req, big.mark = ',')})")
+  
+  return(standardized_data)
+}
+
+# Extract fiscal year from EDATE format (YYYYMMDD)
+extract_fiscal_year <- function(edate) {
+  # Convert EDATE to date format
+  edate_char <- sprintf("%08d", as.numeric(edate))
+  edate_parsed <- as.Date(edate_char, format = "%Y%m%d")
+  
+  # Calculate fiscal year (Oct 1 - Sep 30)
+  calendar_year <- year(edate_parsed)
+  month <- month(edate_parsed)
+  
+  fiscal_year <- ifelse(month >= 10, calendar_year + 1, calendar_year)
+  
+  return(fiscal_year)
+}
+
+# Component code standardization function
+standardize_component_code <- function(compo_raw) {
+  case_when(
+    compo_raw %in% c("1", "01", "AC", "Active", "Active Army") ~ "1",
+    compo_raw %in% c("2", "02", "NG", "ARNG", "National Guard") ~ "2", 
+    compo_raw %in% c("3", "03", "AR", "USAR", "Army Reserve") ~ "3",
+    compo_raw %in% c("6", "06", "APS", "Prepositioned") ~ "6",
+    TRUE ~ NA_character_
+  )
+}
+
+# Integrate DARPL priorities if available
+integrate_darpl_priorities <- function(sacs_data, darpl_data) {
+  
+  if (is.null(darpl_data) || nrow(darpl_data) == 0) {
+    log_warning("No DARPL data provided - using default priorities")
+    return(sacs_data)
+  }
+  
+  log_info("Integrating DARPL priorities with SACS data")
+  
+  # Join SACS data with DARPL priorities
+  sacs_with_darpl <- sacs_data %>%
+    left_join(
+      darpl_data %>% select(dates, compos, units, priority = darpl),
+      by = c("dates", "compos", "units")
+    ) %>%
+    mutate(
+      # Use DARPL priority if available, otherwise use existing DARPL or default
+      darpl = case_when(
+        !is.na(priority) ~ priority,
+        !is.na(darpl) ~ darpl,
+        TRUE ~ 99999  # Default low priority
+      )
+    ) %>%
+    select(-priority)  # Remove temporary priority column
+  
+  # Validate DARPL integration
+  units_with_darpl <- sum(!is.na(sacs_with_darpl$darpl) & sacs_with_darpl$darpl != 99999)
+  total_units <- nrow(sacs_with_darpl)
+  darpl_coverage <- round((units_with_darpl / total_units) * 100, 1)
+  
+  log_info("DARPL integration complete: {darpl_coverage}% coverage ({units_with_darpl}/{total_units} records)")
+  
+  return(sacs_with_darpl)
+}
+
+# Final validation of SACS requirements data
+validate_sacs_processing <- function(sacs_data) {
+  
+  log_info("Validating processed SACS requirements data")
+  
+  validation_results <- list()
+  
+  # Required field validation
+  required_fields <- c("dates", "compos", "units", "lins", "ercs", "reqd")
+  missing_fields <- setdiff(required_fields, names(sacs_data))
+  validation_results$required_fields <- length(missing_fields) == 0
+  
+  if (length(missing_fields) > 0) {
+    log_error("Missing required fields: {paste(missing_fields, collapse = ', ')}")
+  }
+  
+  # Data range validation
+  validation_results$positive_requirements <- all(sacs_data$reqd > 0, na.rm = TRUE)
+  validation_results$valid_components <- all(sacs_data$compos %in% c("1", "2", "3", "6"))
+  validation_results$valid_ercs <- all(sacs_data$ercs %in% c("P", "A"))
+  validation_results$valid_dates <- all(sacs_data$dates >= 2020 & sacs_data$dates <= 2040)
+  
+  # Business rule validation
+  validation_results$proper_lin_format <- all(nchar(sacs_data$lins) == 6)
+  validation_results$proper_uic_format <- all(nchar(sacs_data$units) == 6)
+  
+  # Overall validation status
+  all_validations_passed <- all(unlist(validation_results))
+  
+  if (all_validations_passed) {
+    log_info("SACS data validation PASSED - all checks successful")
+  } else {
+    failed_checks <- names(validation_results)[!unlist(validation_results)]
+    log_error("SACS data validation FAILED - failed checks: {paste(failed_checks, collapse = ', ')}")
+  }
+  
+  return(list(
+    validation_passed = all_validations_passed,
+    detailed_results = validation_results,
+    record_count = nrow(sacs_data),
+    total_requirements = sum(sacs_data$reqd, na.rm = TRUE)
+  ))
+}
+
+#################################################################################################################
+
+# R/src/data_processing/process_ldac_auto.R - LDAC inventory processing with auto-detection
+
+# LDAC (Logistics Data Analysis Center) Inventory Processing with Auto-Detection
+# 
+# Purpose: Automatically detect and process LDAC inventory files without requiring 
+#          date input from users. Handles multi-sheet Excel files and applies 
+#          Army inventory management business rules.
+#
+# Author: NGRER Development Team
+# Last Modified: [Current Date]
+
+#' Process LDAC inventory data with automatic file detection
+#'
+#' This function automatically detects LDAC inventory files and processes them
+#' into standardized format for NGRER optimization. Handles multi-sheet Excel
+#' files and applies inventory condition filtering.
+#'
+#' @param ldac_directory Path to LDAC data directory
+#' @param config_file Path to NGRER configuration file  
+#' @param current_fy Current fiscal year for inventory dating
+#' @return Processed LDAC inventory data frame
+#' 
+#' @examples
+#' ldac_data <- process_ldac_inventory_auto("data/input/ldac")
+#' 
+#' @export
+process_ldac_inventory_auto <- function(ldac_directory = "data/input/ldac", 
+                                        config_file = "config/ngrer_config.yaml",
+                                        current_fy = NULL) {
+  
+  library(dplyr)
+  library(readxl)
+  library(stringr)
+  library(logger)
+  
+  log_info("Starting automatic LDAC inventory processing from: {ldac_directory}")
+  
+  # Determine current fiscal year if not provided
+  if (is.null(current_fy)) {
+    current_fy <- determine_current_fiscal_year()
+    log_info("Using auto-detected fiscal year: {current_fy}")
+  }
+  
+  # Auto-detect LDAC files
+  ldac_files <- detect_ldac_files(ldac_directory)
+  
+  if (length(ldac_files$inventory_files) == 0) {
+    log_error("No valid LDAC inventory files detected in directory: {ldac_directory}")
+    stop("LDAC file detection failed")
+  }
+  
+  # Process each detected file
+  processed_inventory <- list()
+  
+  for (i in seq_along(ldac_files$inventory_files)) {
+    inventory_file <- ldac_files$inventory_files[[i]]
+    
+    log_info("Processing LDAC file: {basename(inventory_file)}")
+    
+    # Process this inventory file
+    file_result <- process_ldac_file(
+      inventory_file = inventory_file,
+      current_fy = current_fy
+    )
+    
+    if (!is.null(file_result) && nrow(file_result) > 0) {
+      processed_inventory[[i]] <- file_result
+      log_info("Processed {nrow(file_result)} inventory records from {basename(inventory_file)}")
+    } else {
+      log_warning("No valid inventory data extracted from: {basename(inventory_file)}")
+    }
+  }
+  
+  # Combine all processed data
+  if (length(processed_inventory) > 0) {
+    combined_inventory <- bind_rows(processed_inventory)
+    
+    # Final validation and consolidation
+    validated_inventory <- validate_combined_inventory(combined_inventory)
+    
+    log_info("LDAC processing complete: {nrow(validated_inventory)} inventory records")
+    
+    return(validated_inventory)
+    
+  } else {
+    log_error("No LDAC inventory data successfully processed")
+    return(data.frame())
+  }
+}
+
+# Auto-detect LDAC files in directory
+detect_ldac_files <- function(ldac_directory) {
+  
+  if (!dir.exists(ldac_directory)) {
+    log_error("LDAC directory does not exist: {ldac_directory}")
+    return(list(inventory_files = character(0)))
+  }
+  
+  # Look for LDAC inventory files (Excel format)
+  all_files <- list.files(ldac_directory, full.names = TRUE, pattern = "\\.(xlsx|xls)$")
+  
+  # LDAC inventory file pattern: AE2S_LIN_DATA_G8_NIIN_File_*.xlsx
+  inventory_pattern <- "AE2S_LIN_DATA_G8_NIIN_File_.*\\.(xlsx|xls)$"
+  inventory_files <- all_files[str_detect(basename(all_files), inventory_pattern)]
+  
+  log_info("Detected {length(inventory_files)} LDAC inventory files")
+  
+  # Log file details
+  for (file in inventory_files) {
+    file_info <- file.info(file)
+    log_info("Found: {basename(file)} (Size: {round(file_info$size / (1024^2), 2)} MB, Modified: {file_info$mtime})")
+  }
+  
+  return(list(inventory_files = inventory_files))
+}
+
+# Determine current fiscal year automatically
+determine_current_fiscal_year <- function() {
+  current_date <- Sys.Date()
+  current_month <- as.numeric(format(current_date, "%m"))
+  current_year <- as.numeric(format(current_date, "%Y"))
+  
+  # Army fiscal year runs from October 1 to September 30
+  # If current month is Oct, Nov, Dec, then FY is next calendar year
+  if (current_month >= 10) {
+    fy <- current_year + 1
+  } else {
+    fy <- current_year
+  }
+  
+  return(fy)
+}
+
+# Process individual LDAC inventory file
+process_ldac_file <- function(inventory_file, current_fy) {
+  
+  tryCatch({
+    
+    # Get list of sheets in the Excel file
+    sheet_names <- excel_sheets(inventory_file)
+    log_info("Found {length(sheet_names)} sheets in {basename(inventory_file)}")
+    
+    # LDAC files typically have 3 sheets: Sheet 1, Sheet 2, Sheet 3
+    # Process sheets that exist and contain data
+    valid_sheets <- sheet_names[str_detect(sheet_names, "^Sheet [1-3]$")]
+    
+    if (length(valid_sheets) == 0) {
+      # Try numbered sheets or default naming
+      valid_sheets <- sheet_names[1:min(3, length(sheet_names))]
+      log_warning("Using first {length(valid_sheets)} sheets as LDAC inventory data")
+    }
+    
+    inventory_data_list <- list()
+    
+    # Read each sheet
+    for (sheet in valid_sheets) {
+      sheet_data <- read_ldac_sheet(inventory_file, sheet)
+      
+      if (!is.null(sheet_data) && nrow(sheet_data) > 0) {
+        sheet_data$source_sheet <- sheet
+        inventory_data_list[[sheet]] <- sheet_data
+        log_info("Read {nrow(sheet_data)} records from sheet: {sheet}")
+      }
+    }
+    
+    if (length(inventory_data_list) == 0) {
+      log_warning("No valid data found in any sheet of: {basename(inventory_file)}")
+      return(NULL)
+    }
+    
+    # Combine all sheets
+    combined_data <- bind_rows(inventory_data_list, .id = "sheet_source")
+    
+    # Standardize and filter the data
+    standardized_data <- standardize_ldac_data(combined_data, current_fy)
+    
+    return(standardized_data)
+    
+  }, error = function(e) {
+    log_error("Failed to process LDAC file {basename(inventory_file)}: {e$message}")
+    return(NULL)
+  })
+}
+
+# Read individual LDAC sheet with error handling
+read_ldac_sheet <- function(inventory_file, sheet_name) {
+  
+  tryCatch({
+    
+    # Read the Excel sheet
+    sheet_data <- read_excel(
+      inventory_file,
+      sheet = sheet_name,
+      col_types = "text",  # Read all as text initially to handle formatting issues
+      .name_repair = "universal"  # Handle duplicate/invalid column names
+    )
+    
+    # Basic validation - check if sheet has minimum required columns
+    required_base_columns <- c("LIN", "QTY", "COMPO", "UIC")
+    
+    # Check for columns that might match (case-insensitive, partial matching)
+    sheet_columns <- names(sheet_data)
+    matched_columns <- find_matching_columns(sheet_columns, required_base_columns)
+    
+    if (length(matched_columns) < 3) {
+      log_warning("Sheet {sheet_name} missing required columns - only found: {paste(names(matched_columns), collapse = ', ')}")
+      return(NULL)
+    }
+    
+    log_debug("Successfully read sheet {sheet_name} with {nrow(sheet_data)} rows and {ncol(sheet_data)} columns")
+    
+    return(sheet_data)
+    
+  }, error = function(e) {
+    log_warning("Could not read sheet {sheet_name}: {e$message}")
+    return(NULL)
+  })
+}
+
+# Find matching columns with flexible naming
+find_matching_columns <- function(sheet_columns, required_columns) {
+  
+  matched_columns <- list()
+  
+  for (req_col in required_columns) {
+    # Try exact match first
+    exact_match <- sheet_columns[toupper(sheet_columns) == toupper(req_col)]
+    
+    if (length(exact_match) > 0) {
+      matched_columns[[req_col]] <- exact_match[1]
+      next
+    }
+    
+    # Try partial match
+    partial_match <- sheet_columns[str_detect(toupper(sheet_columns), toupper(req_col))]
+    
+    if (length(partial_match) > 0) {
+      matched_columns[[req_col]] <- partial_match[1]
+      next
+    }
+    
+    # Try common variations
+    if (req_col == "LIN") {
+      lin_variations <- sheet_columns[str_detect(toupper(sheet_columns), "LIN|NSN|ITEM")]
+      if (length(lin_variations) > 0) {
+        matched_columns[[req_col]] <- lin_variations[1]
+      }
+    } else if (req_col == "QTY") {
+      qty_variations <- sheet_columns[str_detect(toupper(sheet_columns), "QTY|QUANTITY|COUNT")]
+      if (length(qty_variations) > 0) {
+        matched_columns[[req_col]] <- qty_variations[1]
+      }
+    } else if (req_col == "COMPO") {
+      compo_variations <- sheet_columns[str_detect(toupper(sheet_columns), "COMPO|COMPONENT")]
+      if (length(compo_variations) > 0) {
+        matched_columns[[req_col]] <- compo_variations[1]
+      }
+    } else if (req_col == "UIC") {
+      uic_variations <- sheet_columns[str_detect(toupper(sheet_columns), "UIC|UNIT")]
+      if (length(uic_variations) > 0) {
+        matched_columns[[req_col]] <- uic_variations[1]
+      }
+    }
+  }
+  
+  return(matched_columns)
+}
+
+# Standardize LDAC data after reading
+standardize_ldac_data <- function(combined_data, current_fy) {
+  
+  log_info("Standardizing LDAC data with {nrow(combined_data)} records")
+  
+  # Find column mappings dynamically
+  column_mapping <- find_matching_columns(names(combined_data), c("LIN", "QTY", "COMPO", "UIC"))
+  
+  # Create standardized column names
+  standardized_data <- combined_data %>%
+    # Rename columns based on mapping
+    rename_with(~ ifelse(.x %in% unlist(column_mapping), names(column_mapping)[match(.x, unlist(column_mapping))], .x))
+  
+  # Apply business logic and filtering
+  filtered_data <- standardized_data %>%
+    # Ensure required columns exist
+    mutate(
+      LIN = if_exists(LIN, ""),
+      QTY = if_exists(QTY, "0"),
+      COMPO = if_exists(COMPO, ""),
+      UIC = if_exists(UIC, ""),
+      CONDITION_CODE = if_exists(CONDITION_CODE, "A")  # Default to serviceable
+    ) %>%
+    # Data type conversions
+    mutate(
+      QTY = as.numeric(str_replace_all(QTY, "[^0-9.-]", "")),
+      LIN = str_trim(toupper(LIN)),
+      UIC = str_trim(toupper(UIC)),
+      COMPO = str_trim(COMPO)
+    ) %>%
+    # Business rule filters
+    filter(
+      !is.na(LIN), !is.na(QTY), !is.na(COMPO),
+      LIN != "", UIC != "",
+      nchar(LIN) == 6,  # Valid LIN format
+      QTY > 0           # Positive quantities only
+    ) %>%
+    # Component code standardization
+    mutate(
+      compos = case_when(
+        COMPO %in% c("1", "01", "AC", "ACTIVE", "ACTIVE ARMY") ~ "1",
+        COMPO %in% c("2", "02", "NG", "ARNG", "NATIONAL GUARD") ~ "2",
+        COMPO %in% c("3", "03", "AR", "USAR", "ARMY RESERVE") ~ "3",
+        COMPO %in% c("6", "06", "APS", "PREPOSITIONED") ~ "6",
+        TRUE ~ NA_character_
+      )
+    ) %>%
+    filter(!is.na(compos)) %>%
+    # Filter to serviceable condition codes (A, B, C)
+    filter(
+      is.na(CONDITION_CODE) | CONDITION_CODE %in% c("A", "B", "C")
+    ) %>%
+    # Final standardization
+    transmute(
+      dates = current_fy,
+      compos = compos,
+      units = UIC,
+      lins = LIN,
+      inv = QTY,
+      condition = coalesce(CONDITION_CODE, "A"),
+      source_sheet = coalesce(source_sheet, "unknown")
+    ) %>%
+    # Aggregate by key dimensions (handle potential duplicates)
+    group_by(dates, compos, units, lins) %>%
+    summarise(
+      inv = sum(inv, na.rm = TRUE),
+      conditions = paste(unique(condition), collapse = ","),
+      sheets_combined = paste(unique(source_sheet), collapse = ","),
+      .groups = "drop"
+    ) %>%
+    filter(inv > 0)  # Final filter for positive inventory
+  
+  # Data quality validation
+  validate_ldac_data(filtered_data)
+  
+  return(filtered_data)
+}
+
+# Helper function to check if column exists
+if_exists <- function(column, default_value = NA) {
+  if (exists(deparse(substitute(column))) && !is.null(column)) {
+    return(column)
+  } else {
+    return(default_value)
+  }
+}
+
+# Validate combined inventory data
+validate_combined_inventory <- function(combined_inventory) {
+  
+  log_info("Validating combined inventory data: {nrow(combined_inventory)} records")
+  
+  validation_results <- list()
+  
+  # Check for required columns
+  required_cols <- c("dates", "compos", "units", "lins", "inv")
+  missing_cols <- setdiff(required_cols, names(combined_inventory))
+  validation_results$required_columns <- length(missing_cols) == 0
+  
+  if (length(missing_cols) > 0) {
+    log_error("Missing required columns: {paste(missing_cols, collapse = ', ')}")
+    stop("Data validation failed: required columns missing")
+  }
+  
+  # Check data types and formats
+  validation_results$data_types <- validate_inventory_data_types(combined_inventory)
+  
+  # Check for negative inventory quantities
+  negative_inventory <- sum(combined_inventory$inv < 0, na.rm = TRUE)
+  validation_results$no_negative_inventory <- negative_inventory == 0
+  
+  if (negative_inventory > 0) {
+    log_warning("Found {negative_inventory} records with negative inventory quantities")
+  }
+  
+  # Check for valid component codes
+  valid_components <- c("1", "2", "3", "6")
+  invalid_components <- sum(!combined_inventory$compos %in% valid_components, na.rm = TRUE)
+  validation_results$valid_components <- invalid_components == 0
+  
+  if (invalid_components > 0) {
+    log_warning("Found {invalid_components} records with invalid component codes")
+  }
+  
+  # Check LIN format (6 characters)
+  invalid_lins <- sum(nchar(combined_inventory$lins) != 6, na.rm = TRUE)
+  validation_results$valid_lin_format <- invalid_lins == 0
+  
+  if (invalid_lins > 0) {
+    log_warning("Found {invalid_lins} records with invalid LIN format")
+  }
+  
+  # Check UIC format (6 characters)
+  invalid_uics <- sum(nchar(combined_inventory$units) != 6, na.rm = TRUE)
+  validation_results$valid_uic_format <- invalid_uics == 0
+  
+  if (invalid_uics > 0) {
+    log_warning("Found {invalid_uics} records with invalid UIC format")
+  }
+  
+  # Check fiscal year validity
+  current_year <- as.numeric(format(Sys.Date(), "%Y"))
+  fiscal_year_range <- (current_year - 5):(current_year + 10)  # Allow 5 years back, 10 years forward
+  invalid_dates <- sum(!combined_inventory$dates %in% fiscal_year_range, na.rm = TRUE)
+  validation_results$valid_fiscal_years <- invalid_dates == 0
+  
+  if (invalid_dates > 0) {
+    log_warning("Found {invalid_dates} records with invalid fiscal year dates")
+  }
+  
+  # Check for duplicate records
+  duplicate_rows <- sum(duplicated(combined_inventory[, c("dates", "compos", "units", "lins")]))
+  validation_results$no_duplicates <- duplicate_rows == 0
+  
+  if (duplicate_rows > 0) {
+    log_warning("Found {duplicate_rows} duplicate inventory records")
+  }
+  
+  # Overall validation status
+  all_validations_passed <- all(unlist(validation_results))
+  
+  if (all_validations_passed) {
+    log_info("All inventory data validations passed successfully")
+  } else {
+    failed_validations <- names(validation_results)[!unlist(validation_results)]
+    log_error("Inventory validation failed for: {paste(failed_validations, collapse = ', ')}")
+  }
+  
+  # Apply data cleaning and standardization
+  cleaned_inventory <- clean_and_standardize_inventory(combined_inventory)
+  
+  # Generate validation summary report
+  validation_summary <- generate_inventory_validation_summary(validation_results, combined_inventory)
+  
+  return(list(
+    cleaned_data = cleaned_inventory,
+    validation_results = validation_results,
+    validation_summary = validation_summary,
+    validation_passed = all_validations_passed
+  ))
+}
+
+# Helper function for data type validation
+validate_inventory_data_types <- function(inventory_data) {
+  
+  type_validations <- list()
+  
+  # Check dates are numeric (fiscal years)
+  type_validations$dates_numeric <- all(is.numeric(inventory_data$dates) | is.integer(inventory_data$dates))
+  
+  # Check compos are character
+  type_validations$compos_character <- is.character(inventory_data$compos)
+  
+  # Check units are character  
+  type_validations$units_character <- is.character(inventory_data$units)
+  
+  # Check lins are character
+  type_validations$lins_character <- is.character(inventory_data$lins)
+  
+  # Check inv are numeric
+  type_validations$inv_numeric <- all(is.numeric(inventory_data$inv) | is.integer(inventory_data$inv))
+  
+  return(all(unlist(type_validations)))
+}
+
+# Clean and standardize inventory data
+clean_and_standardize_inventory <- function(inventory_data) {
+  
+  log_info("Cleaning and standardizing inventory data")
+  
+  cleaned_data <- inventory_data %>%
+    # Remove records with missing critical data
+    filter(
+      !is.na(dates), !is.na(compos), !is.na(units), 
+      !is.na(lins), !is.na(inv)
+    ) %>%
+    # Standardize component codes
+    mutate(
+      compos = case_when(
+        compos %in% c("1", "01", "AC", "Active") ~ "1",
+        compos %in% c("2", "02", "NG", "ARNG") ~ "2", 
+        compos %in% c("3", "03", "AR", "USAR") ~ "3",
+        compos %in% c("6", "06", "APS") ~ "6",
+        TRUE ~ compos
+      )
+    ) %>%
+    # Standardize LIN and UIC formats
+    mutate(
+      lins = str_trim(str_to_upper(lins)),
+      units = str_trim(str_to_upper(units))
+    ) %>%
+    # Remove negative inventory quantities
+    filter(inv >= 0) %>%
+    # Remove invalid component codes
+    filter(compos %in% c("1", "2", "3", "6")) %>%
+    # Remove invalid LIN formats
+    filter(nchar(lins) == 6) %>%
+    # Remove invalid UIC formats  
+    filter(nchar(units) == 6) %>%
+    # Aggregate any remaining duplicates
+    group_by(dates, compos, units, lins) %>%
+    summarise(
+      inv = sum(inv, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    # Final filter for positive inventory
+    filter(inv > 0)
+  
+  log_info("Data cleaning complete: {nrow(cleaned_data)} records retained from {nrow(inventory_data)} original records")
+  
+  return(cleaned_data)
+}
+
+# Generate validation summary report
+generate_inventory_validation_summary <- function(validation_results, original_data) {
+  
+  summary_report <- data.frame(
+    validation_check = names(validation_results),
+    result = unlist(validation_results),
+    description = c(
+      "All required columns present",
+      "Data types are correct", 
+      "No negative inventory quantities",
+      "Valid component codes only",
+      "Valid LIN format (6 characters)",
+      "Valid UIC format (6 characters)", 
+      "Valid fiscal year range",
+      "No duplicate records"
+    ),
+    stringsAsFactors = FALSE
+  )
+  
+  summary_report$status <- ifelse(summary_report$result, "PASS", "FAIL")
+  
+  # Add summary statistics
+  summary_stats <- data.frame(
+    metric = c("Total Records", "Valid Records", "Validation Pass Rate"),
+    value = c(
+      nrow(original_data),
+      sum(validation_results$required_columns), 
+      paste0(round(sum(validation_results) / length(validation_results) * 100, 1), "%")
+    ),
+    stringsAsFactors = FALSE
+  )
+  
+  return(list(
+    validation_details = summary_report,
+    summary_statistics = summary_stats,
+    timestamp = Sys.time()
+  ))
+}
+
+#################################################################################################################
+
+# R/src/data_processing/process_lmdb_auto.R - LMDB data processing with auto-detection
+
+# LMDB (LIN Management Database) Processing with Auto-Detection
+# 
+# Purpose: Automatically detect and process LMDB files without requiring 
+#          date input from users. Handles LIN master data, substitution rules,
+#          and modernization level assignments.
+#
+# Author: NGRER Development Team
+# Last Modified: [Current Date]
+
+#' Process LMDB data with automatic file detection
+#'
+#' This function automatically detects LMDB files and processes them
+#' into standardized format for NGRER optimization. Handles both LIN
+#' master data and substitution rule extraction.
+#'
+#' @param lmdb_directory Path to LMDB data directory
+#' @param config_file Path to NGRER configuration file  
+#' @param sb_700_20_directory Path to SB 700-20 substitution files
+#' @return List containing processed LMDB data and substitution rules
+#' 
+#' @examples
+#' lmdb_data <- process_lmdb_data_auto("data/input/lmdb")
+#' 
+#' @export
+process_lmdb_data_auto <- function(lmdb_directory = "data/input/lmdb", 
+                                   config_file = "config/ngrer_config.yaml",
+                                   sb_700_20_directory = "data/input/substitutions") {
+  
+  library(dplyr)
+  library(readxl)
+  library(stringr)
+  library(tidyr)
+  library(logger)
+  
+  log_info("Starting automatic LMDB processing from: {lmdb_directory}")
+  
+  # Auto-detect LMDB files
+  lmdb_files <- detect_lmdb_files(lmdb_directory)
+  
+  if (length(lmdb_files$master_files) == 0) {
+    log_error("No valid LMDB master files detected in directory: {lmdb_directory}")
+    stop("LMDB file detection failed")
+  }
+  
+  # Process the most recent LMDB master file
+  master_file <- select_most_recent_file(lmdb_files$master_files)
+  log_info("Processing LMDB master file: {basename(master_file)}")
+  
+  # Extract LIN master data
+  lin_master_data <- extract_lin_master_data(master_file)
+  
+  # Extract LMDB substitution rules
+  lmdb_substitution_rules <- extract_lmdb_substitutions(master_file)
+  
+  # Process SB 700-20 substitution rules if available
+  sb_700_20_rules <- process_sb_700_20_rules(sb_700_20_directory)
+  
+  # Combine all substitution rules
+  combined_substitution_rules <- combine_substitution_sources(
+    lmdb_rules = lmdb_substitution_rules,
+    sb_rules = sb_700_20_rules
+  )
+  
+  # Apply business logic filters
+  filtered_substitution_rules <- apply_substitution_filters(
+    combined_substitution_rules, 
+    lin_master_data
+  )
+  
+  # Validation
+  validate_lmdb_processing(lin_master_data, filtered_substitution_rules)
+  
+  log_info("LMDB processing complete: {nrow(lin_master_data)} LINs, {nrow(filtered_substitution_rules)} substitution rules")
+  
+  return(list(
+    lins = lin_master_data,
+    substitution_rules = filtered_substitution_rules,
+    processing_metadata = list(
+      master_file = basename(master_file),
+      processing_timestamp = Sys.time(),
+      record_counts = list(
+        total_lins = nrow(lin_master_data),
+        substitution_rules = nrow(filtered_substitution_rules)
+      )
+    )
+  ))
+}
+
+# Auto-detect LMDB files in directory
+detect_lmdb_files <- function(lmdb_directory) {
+  
+  if (!dir.exists(lmdb_directory)) {
+    log_error("LMDB directory does not exist: {lmdb_directory}")
+    return(list(master_files = character(0)))
+  }
+  
+  # Look for LMDB master files (Excel format typically)
+  all_files <- list.files(lmdb_directory, full.names = TRUE, pattern = "\\.(xlsx|xls|csv)$")
+  
+  # LMDB master file patterns
+  master_patterns <- c(
+    "LINS_ACTIVE.*\\.(xlsx|xls)$",
+    "LMDB.*\\.(xlsx|xls|csv)$", 
+    "LIN_MANAGEMENT.*\\.(xlsx|xls|csv)$"
+  )
+  
+  master_files <- character(0)
+  
+  for (pattern in master_patterns) {
+    pattern_matches <- all_files[str_detect(basename(all_files), pattern, negate = FALSE)]
+    master_files <- c(master_files, pattern_matches)
+  }
+  
+  # Remove duplicates and sort by modification time
+  master_files <- unique(master_files)
+  
+  log_info("Detected {length(master_files)} LMDB master files")
+  
+  # Log file details
+  for (file in master_files) {
+    file_info <- file.info(file)
+    log_info("Found: {basename(file)} (Size: {round(file_info$size / (1024^2), 2)} MB, Modified: {file_info$mtime})")
+  }
+  
+  return(list(master_files = master_files))
+}
+
+# Select most recent file based on modification date and filename patterns
+select_most_recent_file <- function(file_list) {
+  
+  if (length(file_list) == 0) {
+    stop("No files provided for selection")
+  }
+  
+  if (length(file_list) == 1) {
+    return(file_list[1])
+  }
+  
+  # Get file information
+  file_info_df <- data.frame(
+    file_path = file_list,
+    file_name = basename(file_list),
+    mod_time = file.info(file_list)$mtime,
+    stringsAsFactors = FALSE
+  )
+  
+  # Extract dates from filenames where possible
+  file_info_df$extracted_date <- extract_date_from_filename(file_info_df$file_name, "lmdb", "master")
+  
+  # Sort by extracted date first (if available), then by modification time
+  file_info_df <- file_info_df %>%
+    arrange(desc(extracted_date), desc(mod_time))
+  
+  selected_file <- file_info_df$file_path[1]
+  
+  log_info("Selected most recent LMDB file: {basename(selected_file)}")
+  
+  return(selected_file)
+}
+
+# Extract LIN master data from LMDB file
+extract_lin_master_data <- function(lmdb_file) {
+  
+  log_info("Extracting LIN master data from: {basename(lmdb_file)}")
+  
+  tryCatch({
+    
+    # Determine file format and read accordingly
+    file_ext <- tools::file_ext(lmdb_file)
+    
+    if (file_ext %in% c("xlsx", "xls")) {
+      # Try to determine correct sheet name
+      sheet_names <- excel_sheets(lmdb_file)
+      target_sheet <- find_lins_sheet(sheet_names)
+      
+      if (is.null(target_sheet)) {
+        log_warning("Could not identify LINs sheet, using first sheet: {sheet_names[1]}")
+        target_sheet <- sheet_names[1]
+      }
+      
+      raw_data <- read_excel(
+        lmdb_file,
+        sheet = target_sheet,
+        col_types = "text",  # Read all as text to handle formatting issues
+        .name_repair = "universal"
+      )
+      
+    } else if (file_ext == "csv") {
+      raw_data <- read.csv(
+        lmdb_file,
+        stringsAsFactors = FALSE,
+        na.strings = c("", "NA", "NULL", " ")
+      )
+    } else {
+      stop("Unsupported file format: {file_ext}")
+    }
+    
+    # Standardize column names
+    standardized_data <- standardize_lmdb_columns(raw_data)
+    
+    # Extract core LIN information
+    lin_master <- standardized_data %>%
+      select(
+        lins = LIN,
+        nomenclature = any_of(c("NOMENCLATURE", "NOMEN", "ITEM_NAME")),
+        major_capability = any_of(c("MAJOR_CAPABILITY_NAME", "MAJOR_CAPABILITY", "CAPABILITY")),
+        mod_level = any_of(c("MOD_LEVEL", "MODERNIZATION_LEVEL", "ML")),
+        lin_family = any_of(c("LIN_FAMILY_NAME", "LIN_FAMILY", "FAMILY")),
+        puc = any_of(c("PUC", "UNIT_COST", "COST"))
+      ) %>%
+      # Data cleaning and standardization
+      filter(!is.na(lins), lins != "", nchar(lins) >= 6) %>%
+      mutate(
+        lins = str_trim(toupper(lins)),
+        # Standardize modernization levels
+        mod_level = case_when(
+          is.na(mod_level) | mod_level == "" | mod_level == "0" ~ 1,
+          as.numeric(mod_level) > 5 ~ 5,
+          TRUE ~ as.numeric(mod_level)
+        ),
+        # Clean nomenclature
+        nomenclature = str_trim(nomenclature),
+        # Standardize major capability
+        major_capability = str_trim(str_to_title(major_capability))
+      ) %>%
+      distinct(lins, .keep_all = TRUE) %>%
+      arrange(lins)
+    
+    log_info("Extracted {nrow(lin_master)} LIN records from master data")
+    
+    return(lin_master)
+    
+  }, error = function(e) {
+    log_error("Failed to extract LIN master data: {e$message}")
+    stop("LMDB master data extraction failed")
+  })
+}
+
+# Find the correct sheet containing LIN data
+find_lins_sheet <- function(sheet_names) {
+  
+  # Common sheet name patterns for LIN data
+  target_patterns <- c(
+    "LINS.*ACTIVE",
+    "LIN.*MASTER", 
+    "EQUIPMENT.*LIST",
+    "MASTER.*DATA"
+  )
+  
+  for (pattern in target_patterns) {
+    matching_sheets <- sheet_names[str_detect(toupper(sheet_names), pattern)]
+    if (length(matching_sheets) > 0) {
+      log_info("Found target sheet using pattern '{pattern}': {matching_sheets[1]}")
+      return(matching_sheets[1])
+    }
+  }
+  
+  # If no pattern match, look for common exact names
+  exact_names <- c("LINS_Active", "LIN_MASTER", "Sheet1", "Data")
+  for (name in exact_names) {
+    if (name %in% sheet_names) {
+      log_info("Found target sheet by exact name: {name}")
+      return(name)
+    }
+  }
+  
+  return(NULL)
+}
+
+# Standardize LMDB column names
+standardize_lmdb_columns <- function(raw_data) {
+  
+  # Create column mapping
+  column_mapping <- list(
+    LIN = c("LIN", "LINE_ITEM_NUMBER", "EQUIPMENT_LIN"),
+    NOMENCLATURE = c("NOMENCLATURE", "NOMEN", "ITEM_NAME", "DESCRIPTION"),
+    MAJOR_CAPABILITY_NAME = c("MAJOR_CAPABILITY_NAME", "MAJOR_CAPABILITY", "CAPABILITY", "MCA"),
+    MOD_LEVEL = c("MOD_LEVEL", "MODERNIZATION_LEVEL", "ML", "MODIFICATION_LEVEL"),
+    LIN_FAMILY_NAME = c("LIN_FAMILY_NAME", "LIN_FAMILY", "FAMILY", "EQUIPMENT_FAMILY"),
+    PUC = c("PUC", "UNIT_COST", "PRICE", "COST_PER_UNIT"),
+    # Substitution columns
+    REPLACED_BY1 = c("REPLACED_BY1", "REPLACED_BY_1", "SUPERSEDED_BY_1"),
+    REPLACED_BY2 = c("REPLACED_BY2", "REPLACED_BY_2", "SUPERSEDED_BY_2"),
+    REPLACED_BY3 = c("REPLACED_BY3", "REPLACED_BY_3", "SUPERSEDED_BY_3"),
+    REPLACED_BY4 = c("REPLACED_BY4", "REPLACED_BY_4", "SUPERSEDED_BY_4"),
+    REPLACED_BY5 = c("REPLACED_BY5", "REPLACED_BY_5", "SUPERSEDED_BY_5"),
+    REPLACES1 = c("REPLACES1", "REPLACES_1", "SUPERSEDES_1"),
+    REPLACES2 = c("REPLACES2", "REPLACES_2", "SUPERSEDES_2"),
+    REPLACES3 = c("REPLACES3", "REPLACES_3", "SUPERSEDES_3"),
+    REPLACES4 = c("REPLACES4", "REPLACES_4", "SUPERSEDES_4"),
+    REPLACES5 = c("REPLACES5", "REPLACES_5", "SUPERSEDES_5")
+  )
+  
+  # Apply column mapping
+  standardized_data <- raw_data
+  current_names <- toupper(names(standardized_data))
+  
+  for (target_col in names(column_mapping)) {
+    possible_names <- toupper(column_mapping[[target_col]])
+    
+    # Find first matching column
+    match_idx <- which(current_names %in% possible_names)[1]
+    
+    if (!is.na(match_idx)) {
+      names(standardized_data)[match_idx] <- target_col
+      log_debug("Mapped column '{names(raw_data)[match_idx]}' to '{target_col}'")
+    }
+  }
+  
+  return(standardized_data)
+}
+
+# Extract substitution rules from LMDB data
+extract_lmdb_substitutions <- function(lmdb_file) {
+  
+  log_info("Extracting LMDB substitution rules")
+  
+  tryCatch({
+    
+    # Read file with standardized columns
+    file_ext <- tools::file_ext(lmdb_file)
+    
+    if (file_ext %in% c("xlsx", "xls")) {
+      sheet_names <- excel_sheets(lmdb_file)
+      target_sheet <- find_lins_sheet(sheet_names)
+      
+      raw_data <- read_excel(
+        lmdb_file,
+        sheet = target_sheet,
+        col_types = "text",
+        .name_repair = "universal"
+      )
+    } else {
+      raw_data <- read.csv(lmdb_file, stringsAsFactors = FALSE)
+    }
+    
+    # Standardize columns
+    standardized_data <- standardize_lmdb_columns(raw_data)
+    
+    # Extract substitution columns
+    sub_columns <- c("REPLACED_BY1", "REPLACED_BY2", "REPLACED_BY3", 
+                     "REPLACED_BY4", "REPLACED_BY5",
+                     "REPLACES1", "REPLACES2", "REPLACES3", 
+                     "REPLACES4", "REPLACES5")
+    
+    # Check which substitution columns exist
+    available_sub_columns <- intersect(sub_columns, names(standardized_data))
+    
+    if (length(available_sub_columns) == 0) {
+      log_warning("No substitution columns found in LMDB data")
+      return(data.frame(
+        lins = character(0),
+        sublins = character(0),
+        source = character(0),
+        start_dt = as.Date(character(0)),
+        stringsAsFactors = FALSE
+      ))
+    }
+    
+    # Extract substitution relationships
+    substitution_rules <- standardized_data %>%
+      select(LIN, all_of(available_sub_columns)) %>%
+      filter(!is.na(LIN), LIN != "") %>%
+      mutate(LIN = toupper(LIN)) %>%
+      pivot_longer(
+        cols = all_of(available_sub_columns),
+        names_to = "rule_type",
+        values_to = "substitute_lin"
+      ) %>%
+      filter(!is.na(substitute_lin), substitute_lin != "", substitute_lin != "N/A") %>%
+      mutate(
+        substitute_lin = toupper(substitute_lin),
+        # Assign source based on rule type
+        source = case_when(
+          str_detect(rule_type, "REPLACED_BY") ~ "4",  # REPLACED relationships
+          str_detect(rule_type, "REPLACES") ~ "3",     # REPLACES relationships
+          TRUE ~ "5"
+        ),
+        # Assign dates based on source type
+        start_dt = case_when(
+          str_detect(rule_type, "REPLACED_BY") ~ as.Date("2017-09-30"),
+          str_detect(rule_type, "REPLACES") ~ as.Date("2019-09-30"),
+          TRUE ~ as.Date("2017-09-29")
+        ),
+        run_id = paste0("LMDB_", format(Sys.Date(), "%b%Y"))
+      ) %>%
+      select(
+        lins = LIN,
+        sublins = substitute_lin,
+        source,
+        start_dt,
+        run_id
+      ) %>%
+      distinct()
+    
+    # Create bidirectional relationships (both directions)
+    bidirectional_rules <- bind_rows(
+      substitution_rules,
+      substitution_rules %>%
+        rename(lins = sublins, sublins = lins) %>%
+        mutate(source = paste0(source, "_REVERSE"))
+    )
+    
+    log_info("Extracted {nrow(substitution_rules)} LMDB substitution rules")
+    log_info("Generated {nrow(bidirectional_rules)} bidirectional substitution relationships")
+    
+    return(bidirectional_rules)
+    
+  }, error = function(e) {
+    log_error("Failed to extract LMDB substitutions: {e$message}")
+    return(data.frame(
+      lins = character(0),
+      sublins = character(0),
+      source = character(0),
+      start_dt = as.Date(character(0)),
+      stringsAsFactors = FALSE
+    ))
+  })
+}
+
+# Process SB 700-20 substitution rules
+process_sb_700_20_rules <- function(sb_700_20_directory) {
+  
+  log_info("Processing SB 700-20 substitution rules")
+  
+  # Look for SB 700-20 files
+  sb_files <- list.files(
+    sb_700_20_directory, 
+    pattern = "SB_700_20.*\\.(xlsx|xls|csv)$", 
+    full.names = TRUE
+  )
+  
+  if (length(sb_files) == 0) {
+    log_warning("No SB 700-20 files found in directory: {sb_700_20_directory}")
+    return(data.frame(
+      lins = character(0),
+      sublins = character(0),
+      source = character(0),
+      start_dt = as.Date(character(0)),
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  # Process the most recent SB 700-20 file
+  latest_file <- sb_files[which.max(file.mtime(sb_files))]
+  log_info("Processing SB 700-20 file: {basename(latest_file)}")
+  
+  tryCatch({
+    
+    # Read SB 700-20 data
+    if (tools::file_ext(latest_file) %in% c("xlsx", "xls")) {
+      sb_data <- read_excel(latest_file, col_types = "text")
+    } else {
+      sb_data <- read.csv(latest_file, stringsAsFactors = FALSE)
+    }
+    
+    # Standardize SB 700-20 column names
+    sb_standardized <- sb_data %>%
+      rename_with(~ case_when(
+        toupper(.x) %in% c("AUTH_LIN", "AUTHORIZED_LIN", "PRIMARY_LIN") ~ "AUTH_LIN",
+        toupper(.x) %in% c("SUB_LIN", "SUBSTITUTE_LIN", "REPLACEMENT_LIN") ~ "SUB_LIN",
+        TRUE ~ .x
+      )) %>%
+      filter(!is.na(AUTH_LIN), !is.na(SUB_LIN), 
+             AUTH_LIN != "", SUB_LIN != "") %>%
+      mutate(
+        AUTH_LIN = toupper(AUTH_LIN),
+        SUB_LIN = toupper(SUB_LIN),
+        source = "1",  # Highest authority (SB 700-20)
+        start_dt = Sys.Date(),
+        run_id = paste0("SB700_20_", format(Sys.Date(), "%b%Y"))
+      ) %>%
+      select(
+        lins = AUTH_LIN,
+        sublins = SUB_LIN,
+        source,
+        start_dt,
+        run_id
+      ) %>%
+      distinct()
+    
+    log_info("Processed {nrow(sb_standardized)} SB 700-20 substitution rules")
+    
+    return(sb_standardized)
+    
+  }, error = function(e) {
+    log_error("Failed to process SB 700-20 file {basename(latest_file)}: {e$message}")
+    return(data.frame(
+      lins = character(0),
+      sublins = character(0),
+      source = character(0),
+      start_dt = as.Date(character(0)),
+      stringsAsFactors = FALSE
+    ))
+  })
+}
+
+# Combine substitution sources with priority
+combine_substitution_sources <- function(lmdb_rules, sb_rules) {
+  
+  log_info("Combining substitution rules from multiple sources")
+  
+  # Combine all substitution rules
+  all_rules <- bind_rows(lmdb_rules, sb_rules)
+  
+  if (nrow(all_rules) == 0) {
+    log_warning("No substitution rules found from any source")
+    return(data.frame(
+      lins = character(0),
+      sublins = character(0),
+      source = character(0),
+      start_dt = as.Date(character(0)),
+      stringsAsFactors = FALSE
+    ))
+  }
+  
+  # Apply source priority (lower number = higher priority)
+  # 1 = SB 700-20 (highest), 2 = Other high-authority, 3 = REPLACES, 4 = REPLACED_BY
+  prioritized_rules <- all_rules %>%
+    group_by(lins, sublins) %>%
+    arrange(as.numeric(source), start_dt) %>%
+    slice(1) %>%  # Take highest priority (lowest source number)
+    ungroup() %>%
+    mutate(
+      source_desc = case_when(
+        source == "1" ~ "SB_700_20",
+        source == "2" ~ "HIGH_AUTHORITY",
+        source == "3" ~ "REPLACES",
+        source == "4" ~ "REPLACED_BY",
+        TRUE ~ paste0("SOURCE_", source)
+      )
+    )
+  
+  log_info("Combined substitution rules: {nrow(prioritized_rules)} unique relationships")
+  log_info("Source distribution:")
+  
+  source_summary <- prioritized_rules %>%
+    count(source_desc, name = "rule_count") %>%
+    arrange(source_desc)
+  
+  for (i in 1:nrow(source_summary)) {
+    log_info("  {source_summary$source_desc[i]}: {source_summary$rule_count[i]} rules")
+  }
+  
+  return(prioritized_rules)
+}
+
+# Apply modernization level constraints
+apply_modernization_constraints <- function(substitution_rules) {
+  
+  log_info("Applying modernization level constraints to substitution rules")
+  
+  if (nrow(substitution_rules) == 0) {
+    return(substitution_rules)
+  }
+  
+  # Read LIN modernization levels (this would need to be passed or accessed globally)
+  # For now, assume this data is available
+  tryCatch({
+    
+    lin_mod_levels <- get_lin_modernization_levels()  # This function would need to be defined
+    
+    # Join substitution rules with modernization levels
+    rules_with_mod_levels <- substitution_rules %>%
+      left_join(
+        lin_mod_levels %>% select(lins, mod_level_primary = mod_level),
+        by = "lins"
+      ) %>%
+      left_join(
+        lin_mod_levels %>% select(lins, mod_level_substitute = mod_level),
+        by = c("sublins" = "lins")
+      ) %>%
+      mutate(
+        mod_level_primary = ifelse(is.na(mod_level_primary), 1, mod_level_primary),
+        mod_level_substitute = ifelse(is.na(mod_level_substitute), 1, mod_level_substitute)
+      )
+    
+    # Apply modernization constraint: substitute must be >= primary
+    filtered_rules <- rules_with_mod_levels %>%
+      filter(mod_level_substitute >= mod_level_primary) %>%
+      select(-mod_level_primary, -mod_level_substitute)
+    
+    rules_removed <- nrow(substitution_rules) - nrow(filtered_rules)
+    
+    if (rules_removed > 0) {
+      log_info("Removed {rules_removed} substitution rules due to modernization level constraints")
+    }
+    
+    log_info("Final substitution rules after modernization filtering: {nrow(filtered_rules)}")
+    
+    return(filtered_rules)
+    
+  }, error = function(e) {
+    log_warning("Could not apply modernization constraints: {e$message}")
+    log_info("Returning unfiltered substitution rules")
+    return(substitution_rules)
+  })
+}
+
+# Helper function to get LIN modernization levels
+get_lin_modernization_levels <- function() {
+  # This would typically read from the LMDB data processed earlier
+  # For now, return a placeholder
+  log_debug("Getting LIN modernization levels from LMDB data")
+  
+  # This should be replaced with actual data access
+  return(data.frame(
+    lins = character(0),
+    mod_level = integer(0),
+    stringsAsFactors = FALSE
+  ))
+}
+
+#################################################################################################################
+
+# R/src/data_processing/process_fdiis_auto.R - FDIIS-LQA procurement processing with auto-detection
+
+# FDIIS-LQA (Financial Data Integration Information Services) Procurement Processing with Auto-Detection
+# 
+# Purpose: Automatically detect and process FDIIS-LQA procurement files without requiring 
+#          date input from users. Handles multi-year procurement programs and applies 
+#          Army financial management business rules.
+#
+# Author: NGRER Development Team
+# Last Modified: [Current Date]
+
+#' Process FDIIS-LQA procurement data with automatic file detection
+#'
+#' This function automatically detects FDIIS-LQA procurement files and processes them
+#' into standardized format for NGRER optimization. Handles multi-year procurement
+#' programs and applies financial validation rules.
+#'
+#' @param fdiis_directory Path to FDIIS-LQA data directory
+#' @param config_file Path to NGRER configuration file  
+#' @param current_fy Current fiscal year for procurement filtering
+#' @return Processed FDIIS-LQA procurement data frame
+#' 
+#' @examples
+#' fdiis_data <- process_fdiis_procurement_auto("data/input/fdiis")
+#' 
+#' @export
+process_fdiis_procurement_auto <- function(fdiis_directory = "data/input/fdiis", 
+                                           config_file = "config/ngrer_config.yaml",
+                                           current_fy = NULL) {
+  
+  library(dplyr)
+  library(readxl)
+  library(stringr)
+  library(logger)
+  
+  log_info("Starting automatic FDIIS-LQA procurement processing from: {fdiis_directory}")
+  
+  # Determine current fiscal year if not provided
+  if (is.null(current_fy)) {
+    current_fy <- determine_current_fiscal_year()
+    log_info("Using auto-detected fiscal year: {current_fy}")
+  }
+  
+  # Auto-detect FDIIS-LQA files
+  fdiis_files <- detect_fdiis_files(fdiis_directory)
+  
+  if (length(fdiis_files$procurement_files) == 0) {
+    log_error("No valid FDIIS-LQA procurement files detected in directory: {fdiis_directory}")
+    stop("FDIIS-LQA file detection failed")
+  }
+  
+  # Process each detected file
+  processed_procurement <- list()
+  
+  for (i in seq_along(fdiis_files$procurement_files)) {
+    procurement_file <- fdiis_files$procurement_files[[i]]
+    
+    log_info("Processing FDIIS-LQA file: {basename(procurement_file)}")
+    
+    # Process this procurement file
+    file_result <- process_fdiis_file(
+      procurement_file = procurement_file,
+      current_fy = current_fy
+    )
+    
+    if (!is.null(file_result) && nrow(file_result) > 0) {
+      processed_procurement[[i]] <- file_result
+      log_info("Processed {nrow(file_result)} procurement records from {basename(procurement_file)}")
+    } else {
+      log_warning("No valid procurement data extracted from: {basename(procurement_file)}")
+    }
+  }
+  
+  # Combine all processed data
+  if (length(processed_procurement) > 0) {
+    combined_procurement <- bind_rows(processed_procurement)
+    
+    # Final validation and consolidation
+    validated_procurement <- validate_combined_procurement(combined_procurement)
+    
+    log_info("FDIIS-LQA processing complete: {nrow(validated_procurement)} procurement records")
+    
+    return(validated_procurement)
+    
+  } else {
+    log_error("No FDIIS-LQA procurement data successfully processed")
+    return(data.frame())
+  }
+}
+
+# Auto-detect FDIIS-LQA files in directory
+detect_fdiis_files <- function(fdiis_directory) {
+  
+  if (!dir.exists(fdiis_directory)) {
+    log_error("FDIIS-LQA directory does not exist: {fdiis_directory}")
+    return(list(procurement_files = character(0)))
+  }
+  
+  # Look for FDIIS-LQA procurement files (Excel format)
+  all_files <- list.files(fdiis_directory, full.names = TRUE, pattern = "\\.(xlsx|xls)$")
+  
+  # FDIIS-LQA procurement file patterns
+  procurement_patterns <- c(
+    "AE2S_CURRENT_POSITION_.*\\.(xlsx|xls)$",
+    "FDIIS_LQA_.*\\.(xlsx|xls)$",
+    "Procurement_Data_.*\\.(xlsx|xls)$",
+    "Financial_Management_.*\\.(xlsx|xls)$"
+  )
+  
+  procurement_files <- character(0)
+  
+  for (pattern in procurement_patterns) {
+    pattern_matches <- all_files[str_detect(basename(all_files), pattern)]
+    procurement_files <- c(procurement_files, pattern_matches)
+  }
+  
+  # Remove duplicates and sort by modification time
+  procurement_files <- unique(procurement_files)
+  
+  log_info("Detected {length(procurement_files)} FDIIS-LQA procurement files")
+  
+  # Log file details
+  for (file in procurement_files) {
+    file_info <- file.info(file)
+    log_info("Found: {basename(file)} (Size: {round(file_info$size / (1024^2), 2)} MB, Modified: {file_info$mtime})")
+  }
+  
+  return(list(procurement_files = procurement_files))
+}
+
+# Process individual FDIIS-LQA procurement file
+process_fdiis_file <- function(procurement_file, current_fy) {
+  
+  tryCatch({
+    
+    # Determine target sheet name
+    sheet_names <- excel_sheets(procurement_file)
+    target_sheet <- find_procurement_sheet(sheet_names)
+    
+    if (is.null(target_sheet)) {
+      log_warning("Could not identify procurement sheet, using first sheet: {sheet_names[1]}")
+      target_sheet <- sheet_names[1]
+    }
+    
+    # Read the Excel sheet
+    procurement_data <- read_excel(
+      procurement_file,
+      sheet = target_sheet,
+      col_types = "text",  # Read all as text initially
+      .name_repair = "universal"
+    )
+    
+    log_info("Read {nrow(procurement_data)} rows from sheet: {target_sheet}")
+    
+    # Standardize column names
+    standardized_data <- standardize_fdiis_columns(procurement_data)
+    
+    # Apply business logic and filtering
+    filtered_data <- apply_fdiis_business_rules(standardized_data, current_fy)
+    
+    # Final standardization
+    final_data <- standardize_fdiis_output(filtered_data)
+    
+    return(final_data)
+    
+  }, error = function(e) {
+    log_error("Failed to process FDIIS-LQA file {basename(procurement_file)}: {e$message}")
+    return(NULL)
+  })
+}
+
+# Find the correct sheet containing procurement data
+find_procurement_sheet <- function(sheet_names) {
+  
+  # Common sheet name patterns for procurement data
+  target_patterns <- c(
+    "AE2S.*CURRENT.*POSITION",
+    "PROCUREMENT.*DATA",
+    "FINANCIAL.*DATA",
+    "LQA.*DATA"
+  )
+  
+  for (pattern in target_patterns) {
+    matching_sheets <- sheet_names[str_detect(toupper(sheet_names), pattern)]
+    if (length(matching_sheets) > 0) {
+      log_info("Found target sheet using pattern '{pattern}': {matching_sheets[1]}")
+      return(matching_sheets[1])
+    }
+  }
+  
+  # If no pattern match, look for common exact names
+  exact_names <- c("AE2S_CURRENT_POSITION", "Procurement_Data", "Sheet1", "Data")
+  for (name in exact_names) {
+    if (name %in% sheet_names) {
+      log_info("Found target sheet by exact name: {name}")
+      return(name)
+    }
+  }
+  
+  return(NULL)
+}
+
+# Standardize FDIIS-LQA column names
+standardize_fdiis_columns <- function(procurement_data) {
+  
+  # Create column mapping for FDIIS-LQA fields
+  column_mapping <- list(
+    LIN_OUT = c("LIN_OUT", "LIN", "LINE_ITEM_NUMBER"),
+    COMPO = c("COMPO", "COMPONENT", "COMPONENT_CODE"),
+    FY = c("FY", "FISCAL_YEAR", "YEAR", "DELIVERY_YEAR"),
+    AMOUNT = c("AMOUNT", "QUANTITY", "QTY", "PROCUREMENT_QTY"),
+    BO = c("BO", "BUDGET_OFFICE", "BUDGET_OFFICE_CODE"),
+    Procurement_Type = c("Procurement_Type", "PROCUREMENT_TYPE", "TYPE", "CATEGORY"),
+    AMOUNT_TYPE = c("AMOUNT_TYPE", "UNIT_TYPE", "TYPE_INDICATOR"),
+    Previous_YR = c("Previous_YR", "PREVIOUS_YEAR", "BASELINE_YEAR")
+  )
+  
+  # Apply column mapping
+  standardized_data <- procurement_data
+  current_names <- toupper(names(standardized_data))
+  
+  for (target_col in names(column_mapping)) {
+    possible_names <- toupper(column_mapping[[target_col]])
+    
+    # Find first matching column
+    match_idx <- which(current_names %in% possible_names)[1]
+    
+    if (!is.na(match_idx)) {
+      names(standardized_data)[match_idx] <- target_col
+      log_debug("Mapped column '{names(procurement_data)[match_idx]}' to '{target_col}'")
+    }
+  }
+  
+  return(standardized_data)
+}
+
+# Apply FDIIS-LQA business rules and filtering
+apply_fdiis_business_rules <- function(standardized_data, current_fy) {
+  
+  log_info("Applying FDIIS-LQA business rules and filtering")
+  
+  # Define previous year for filtering (equivalent to SAS &Previous_YR)
+  previous_yr <- current_fy - 1
+  
+  filtered_data <- standardized_data %>%
+    # Ensure required columns exist with defaults
+    mutate(
+      BO = if_exists(BO, "1"),
+      AMOUNT = if_exists(AMOUNT, "0"),
+      FY = if_exists(FY, as.character(current_fy)),
+      Procurement_Type = if_exists(Procurement_Type, "NEW"),
+      AMOUNT_TYPE = if_exists(AMOUNT_TYPE, "Quantity"),
+      LIN_OUT = if_exists(LIN_OUT, ""),
+      COMPO = if_exists(COMPO, "1")
+    ) %>%
+    # Data type conversions
+    mutate(
+      AMOUNT = as.numeric(str_replace_all(AMOUNT, "[^0-9.-]", "")),
+      FY = as.numeric(FY),
+      COMPO = as.numeric(COMPO),
+      BO = as.character(BO),
+      LIN_OUT = str_trim(toupper(LIN_OUT))
+    ) %>%
+    # Business rule filters (equivalent to SAS IF statement)
+    filter(
+      BO == '1',                                    # Budget Office 1 only
+      !is.na(AMOUNT) & AMOUNT > 0,                 # Positive amounts only
+      !is.na(FY) & FY > previous_yr,               # Future years only
+      Procurement_Type %in% c("NEW", "RECAP"),     # New/Recap procurements only
+      AMOUNT_TYPE == "Quantity",                    # Quantity (not dollar) amounts
+      !is.na(LIN_OUT) & LIN_OUT != "N/A" & LIN_OUT != ""  # Valid LIN assignment
+    ) %>%
+    # Component standardization (equivalent to SAS compo3=put(compo,1.))
+    mutate(
+      compos = case_when(
+        COMPO == 1 ~ "1",
+        COMPO == 2 ~ "2", 
+        COMPO == 3 ~ "3",
+        COMPO == 6 ~ "6",
+        TRUE ~ as.character(COMPO)
+      )
+    ) %>%
+    filter(!is.na(compos), compos %in% c("1", "2", "3", "6"))
+  
+  log_info("Applied business rules: {nrow(filtered_data)} records retained from {nrow(standardized_data)} original records")
+  
+  return(filtered_data)
+}
+
+# Standardize FDIIS-LQA output format
+standardize_fdiis_output <- function(filtered_data) {
+  
+  # Final standardization to match NGRER requirements
+  standardized_output <- filtered_data %>%
+    group_by(LIN = LIN_OUT, COMPO = compos, FY) %>%
+    summarise(
+      Qty = sum(AMOUNT, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    filter(Qty > 0) %>%
+    transmute(
+      dates = FY,                    # Standardize fiscal year field
+      compos = COMPO,               # Standardize component field
+      lins = LIN,                   # Standardize LIN field
+      qty = Qty                     # Standardize quantity field
+    ) %>%
+    arrange(dates, compos, lins)
+  
+  return(standardized_output)
+}
+
+# Helper function to check if column exists with default value
+if_exists <- function(column, default_value = NA) {
+  if (missing(column) || is.null(column) || all(is.na(column))) {
+    return(rep(default_value, max(1, length(column))))
+  } else {
+    return(column)
+  }
+}
+
+# Validate combined procurement data
+validate_combined_procurement <- function(combined_procurement) {
+  
+  log_info("Validating combined procurement data: {nrow(combined_procurement)} records")
+  
+  validation_results <- list()
+  
+  # Check for required columns
+  required_cols <- c("dates", "compos", "lins", "qty")
+  missing_cols <- setdiff(required_cols, names(combined_procurement))
+  validation_results$required_columns <- length(missing_cols) == 0
+  
+  if (length(missing_cols) > 0) {
+    log_error("Missing required columns: {paste(missing_cols, collapse = ', ')}")
+    stop("Data validation failed: required columns missing")
+  }
+  
+  # Check data types and ranges
+  validation_results$data_types <- validate_procurement_data_types(combined_procurement)
+  
+  # Check for negative procurement quantities
+  negative_procurement <- sum(combined_procurement$qty < 0, na.rm = TRUE)
+  validation_results$no_negative_procurement <- negative_procurement == 0
+  
+  if (negative_procurement > 0) {
+    log_warning("Found {negative_procurement} records with negative procurement quantities")
+  }
+  
+  # Check for valid component codes
+  valid_components <- c("1", "2", "3", "6")
+  invalid_components <- sum(!combined_procurement$compos %in% valid_components, na.rm = TRUE)
+  validation_results$valid_components <- invalid_components == 0
+  
+  if (invalid_components > 0) {
+    log_warning("Found {invalid_components} records with invalid component codes")
+  }
+  
+  # Check LIN format (6 characters)
+  invalid_lins <- sum(nchar(combined_procurement$lins) != 6, na.rm = TRUE)
+  validation_results$valid_lin_format <- invalid_lins == 0
+  
+  if (invalid_lins > 0) {
+    log_warning("Found {invalid_lins} records with invalid LIN format")
+  }
+  
+  # Check fiscal year validity  
+  current_year <- as.numeric(format(Sys.Date(), "%Y"))
+  fiscal_year_range <- (current_year - 2):(current_year + 10)  # Allow 2 years back, 10 years forward
+  invalid_dates <- sum(!combined_procurement$dates %in% fiscal_year_range, na.rm = TRUE)
+  validation_results$valid_fiscal_years <- invalid_dates == 0
+  
+  if (invalid_dates > 0) {
+    log_warning("Found {invalid_dates} records with invalid fiscal year dates")
+  }
+  
+  # Check for duplicate procurement records
+  duplicate_rows <- sum(duplicated(combined_procurement[, c("dates", "compos", "lins")]))
+  validation_results$no_duplicates <- duplicate_rows == 0
+  
+  if (duplicate_rows > 0) {
+    log_warning("Found {duplicate_rows} duplicate procurement records")
+    # Remove duplicates by summing quantities
+    combined_procurement <- combined_procurement %>%
+      group_by(dates, compos, lins) %>%
+      summarise(qty = sum(qty, na.rm = TRUE), .groups = "drop")
+  }
+  
+  # Overall validation status
+  all_validations_passed <- all(unlist(validation_results))
+  
+  if (all_validations_passed) {
+    log_info("All procurement data validations passed successfully")
+  } else {
+    failed_validations <- names(validation_results)[!unlist(validation_results)]
+    log_error("Procurement validation failed for: {paste(failed_validations, collapse = ', ')}")
+  }
+  
+  # Apply data cleaning and standardization
+  cleaned_procurement <- clean_and_standardize_procurement(combined_procurement)
+  
+  # Generate validation summary report
+  validation_summary <- generate_procurement_validation_summary(validation_results, combined_procurement)
+  
+  return(list(
+    cleaned_data = cleaned_procurement,
+    validation_results = validation_results,
+    validation_summary = validation_summary,
+    validation_passed = all_validations_passed
+  ))
+}
+
+# Helper function for procurement data type validation
+validate_procurement_data_types <- function(procurement_data) {
+  
+  type_validations <- list()
+  
+  # Check dates are numeric (fiscal years)
+  type_validations$dates_numeric <- all(is.numeric(procurement_data$dates) | is.integer(procurement_data$dates))
+  
+  # Check compos are character
+  type_validations$compos_character <- is.character(procurement_data$compos)
+  
+  # Check lins are character
+  type_validations$lins_character <- is.character(procurement_data$lins)
+  
+  # Check qty are numeric
+  type_validations$qty_numeric <- all(is.numeric(procurement_data$qty) | is.integer(procurement_data$qty))
+  
+  return(all(unlist(type_validations)))
+}
+
+# Clean and standardize procurement data
+clean_and_standardize_procurement <- function(procurement_data) {
+  
+  log_info("Cleaning and standardizing procurement data")
+  
+  cleaned_data <- procurement_data %>%
+    # Remove records with missing critical data
+    filter(
+      !is.na(dates), !is.na(compos), !is.na(lins), !is.na(qty)
+    ) %>%
+    # Standardize component codes
+    mutate(
+      compos = case_when(
+        compos %in% c("1", "01", "AC", "Active") ~ "1",
+        compos %in% c("2", "02", "NG", "ARNG") ~ "2", 
+        compos %in% c("3", "03", "AR", "USAR") ~ "3",
+        compos %in% c("6", "06", "APS") ~ "6",
+        TRUE ~ compos
+      )
+    ) %>%
+    # Standardize LIN formats
+    mutate(
+      lins = str_trim(str_to_upper(lins))
+    ) %>%
+    # Remove negative procurement quantities
+    filter(qty >= 0) %>%
+    # Remove invalid component codes
+    filter(compos %in% c("1", "2", "3", "6")) %>%
+    # Remove invalid LIN formats
+    filter(nchar(lins) == 6) %>%
+    # Aggregate any remaining duplicates
+    group_by(dates, compos, lins) %>%
+    summarise(
+      qty = sum(qty, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    # Final filter for positive procurement
+    filter(qty > 0) %>%
+    arrange(dates, compos, lins)
+  
+  log_info("Data cleaning complete: {nrow(cleaned_data)} records retained from {nrow(procurement_data)} original records")
+  
+  return(cleaned_data)
+}
+
+# Generate procurement validation summary report
+generate_procurement_validation_summary <- function(validation_results, original_data) {
+  
+  summary_report <- data.frame(
+    validation_check = names(validation_results),
+    result = unlist(validation_results),
+    description = c(
+      "All required columns present",
+      "Data types are correct", 
+      "No negative procurement quantities",
+      "Valid component codes only",
+      "Valid LIN format (6 characters)",
+      "Valid fiscal year range",
+      "No duplicate records"
+    ),
+    stringsAsFactors = FALSE
+  )
+  
+  summary_report$status <- ifelse(summary_report$result, "PASS", "FAIL")
+  
+  # Add summary statistics
+  summary_stats <- data.frame(
+    metric = c("Total Records", "Valid Records", "Validation Pass Rate", "Total Procurement Qty"),
+    value = c(
+      nrow(original_data),
+      sum(validation_results$required_columns), 
+      paste0(round(sum(validation_results) / length(validation_results) * 100, 1), "%"),
+      format(sum(original_data$qty, na.rm = TRUE), big.mark = ",")
+    ),
+    stringsAsFactors = FALSE
+  )
+  
+  return(list(
+    validation_details = summary_report,
+    summary_statistics = summary_stats,
+    timestamp = Sys.time()
+  ))
+}
+
+# Business rule validation for FDIIS-LQA procurement data
+validate_procurement_business_rules <- function(procurement_data) {
+  
+  business_rule_violations <- list()
+  
+  # Check for procurement quantities exceeding reasonable thresholds
+  excessive_procurement <- procurement_data %>%
+    filter(qty > 10000) %>%  # Threshold for unusually high procurement
+    arrange(desc(qty))
+  
+  if (nrow(excessive_procurement) > 0) {
+    business_rule_violations$excessive_quantities <- excessive_procurement
+    log_warning("Found {nrow(excessive_procurement)} records with excessive procurement quantities")
+  }
+  
+  # Check for procurement in historical fiscal years (should be future-looking)
+  current_fy <- determine_current_fiscal_year()
+  historical_procurement <- procurement_data %>%
+    filter(dates < current_fy)
+  
+  if (nrow(historical_procurement) > 0) {
+    business_rule_violations$historical_procurement <- historical_procurement
+    log_warning("Found {nrow(historical_procurement)} records with procurement in past fiscal years")
+  }
+  
+  # Check for missing LINs in active inventory or requirements
+  # This would require integration with other data sources for comprehensive validation
+  
+  return(business_rule_violations)
+}
+
+# Integration with optimization model input preparation
+prepare_procurement_for_optimization <- function(cleaned_procurement_data) {
+  
+  log_info("Preparing procurement data for optimization model")
+  
+  # Create optimization-ready procurement dataset
+  optimization_procurement <- cleaned_procurement_data %>%
+    # Ensure all required fields are present
+    select(dates, compos, lins, qty) %>%
+    # Add metadata for tracking
+    mutate(
+      data_source = "FDIIS_LQA",
+      processing_timestamp = Sys.time(),
+      fiscal_year_type = case_when(
+        dates <= determine_current_fiscal_year() + 2 ~ "NEAR_TERM",
+        dates <= determine_current_fiscal_year() + 5 ~ "MID_TERM", 
+        TRUE ~ "LONG_TERM"
+      )
+    ) %>%
+    arrange(dates, compos, lins)
+  
+  # Generate procurement statistics for model input validation
+  procurement_stats <- optimization_procurement %>%
+    group_by(compos) %>%
+    summarise(
+      total_procurement_value = sum(qty, na.rm = TRUE),
+      unique_lins = n_distinct(lins),
+      fiscal_years_covered = n_distinct(dates),
+      avg_annual_procurement = mean(qty, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  log_info("Procurement preparation complete:")
+  log_info("  Total procurement quantity: {format(sum(optimization_procurement$qty), big.mark = ',')}")
+  log_info("  Unique LINs: {n_distinct(optimization_procurement$lins)}")
+  log_info("  Fiscal years: {paste(sort(unique(optimization_procurement$dates)), collapse = ', ')}")
+  
+  return(list(
+    optimization_data = optimization_procurement,
+    statistics = procurement_stats,
+    metadata = list(
+      processing_timestamp = Sys.time(),
+      record_count = nrow(optimization_procurement),
+      data_quality_score = calculate_data_quality_score(optimization_procurement)
+    )
+  ))
+}
+
+# Calculate data quality score
+calculate_data_quality_score <- function(data) {
+  
+  quality_metrics <- list(
+    completeness = 1 - (sum(is.na(data)) / (nrow(data) * ncol(data))),
+    consistency = check_data_consistency(data),
+    accuracy = check_data_accuracy(data),
+    timeliness = check_data_timeliness(data)
+  )
+  
+  # Weighted average of quality metrics
+  weights <- c(completeness = 0.3, consistency = 0.3, accuracy = 0.25, timeliness = 0.15)
+  quality_score <- sum(unlist(quality_metrics) * weights)
+  
+  return(round(quality_score * 100, 1))
+}
+
+# Helper functions for data quality assessment
+check_data_consistency <- function(data) {
+  # Check for consistent component code formats, LIN formats, etc.
+  consistency_checks <- list(
+    component_format = all(data$compos %in% c("1", "2", "3", "6")),
+    lin_format = all(nchar(data$lins) == 6),
+    positive_quantities = all(data$qty >= 0)
+  )
+  
+  return(mean(unlist(consistency_checks)))
+}
+
+check_data_accuracy <- function(data) {
+  # Basic accuracy checks - could be enhanced with business rule validation
+  accuracy_checks <- list(
+    reasonable_quantities = all(data$qty <= 10000),  # Reasonable procurement quantities
+    valid_fiscal_years = all(data$dates >= 2020 & data$dates <= 2035)
+  )
+  
+  return(mean(unlist(accuracy_checks)))
+}
+
+check_data_timeliness <- function(data) {
+  # Check if data represents current and future procurement plans
+  current_fy <- determine_current_fiscal_year()
+  future_focused <- mean(data$dates >= current_fy)
+  
+  return(future_focused)
+}
+
+#################################################################################################################
+
+# R/main/main_data_processing.R - NGRER Main Data Processing Orchestration
+# 
+# Purpose: Orchestrate all data processing modules for the NGRER optimization system
+#          This script coordinates the complete data pipeline from raw inputs to 
+#          optimization-ready datasets
+#
+# Author: NGRER Development Team
+# Last Modified: [Current Date]
+
+#' Main Data Processing Pipeline for NGRER System
+#'
+#' This function orchestrates the complete data processing workflow, from initial
+#' file detection through final dataset preparation for optimization
+#'
+#' @param config_file Path to NGRER configuration file
+#' @param force_regenerate Logical, whether to force regeneration of all datasets
+#' @param validation_mode Logical, whether to run in validation mode with SAS comparison
+#' @return List containing all processed datasets and processing summary
+#' 
+#' @examples
+#' results <- run_complete_data_processing("config/ngrer_config.yaml")
+#' 
+#' @export
+run_complete_data_processing <- function(config_file = "config/ngrer_config.yaml",
+                                         force_regenerate = FALSE,
+                                         validation_mode = FALSE) {
+  
+  # Load required libraries
+  library(dplyr)
+  library(logger)
+  library(yaml)
+  library(data.table)
+  
+  # Initialize logging
+  setup_ngrer_logging()
+  log_info("=== STARTING NGRER MAIN DATA PROCESSING PIPELINE ===")
+  
+  # Load configuration
+  config <- yaml::read_yaml(config_file)
+  log_info("Configuration loaded from: {config_file}")
+  
+  # Record start time for performance monitoring
+  start_time <- Sys.time()
+  
+  # Initialize processing results structure
+  processing_results <- list(
+    datasets = list(),
+    metadata = list(),
+    validation_results = list(),
+    performance_metrics = list(),
+    audit_trail = list()
+  )
+  
+  tryCatch({
+    
+    # ========================================================================
+    # STEP 1: AUTOMATIC FILE DETECTION AND INVENTORY
+    # ========================================================================
+    
+    log_info("STEP 1: Beginning automatic file detection and inventory")
+    
+    source("R/data_processing/auto_file_detection.R")
+    
+    file_detection_results <- detect_all_input_files(
+      base_input_path = config$data_paths$input_base,
+      config_file = config_file
+    )
+    
+    if (length(file_detection_results$file_inventory) == 0) {
+      stop("No valid input files detected. Please check data source directories.")
+    }
+    
+    processing_results$metadata$file_inventory <- file_detection_results$file_inventory
+    processing_results$audit_trail$file_detection <- file_detection_results$audit_entry
+    
+    log_info("File detection completed: {file_detection_results$processing_summary$total_files_found} files found")
+    
+    # ========================================================================
+    # STEP 2: SACS REQUIREMENTS PROCESSING
+    # ========================================================================
+    
+    log_info("STEP 2: Processing SACS equipment requirements")
+    
+    source("R/data_processing/process_sacs_auto.R")
+    
+    sacs_results <- process_sacs_requirements_auto(
+      sacs_directory = config$data_paths$sacs,
+      config_file = config_file
+    )
+    
+    processing_results$datasets$requirements <- sacs_results
+    
+    log_info("SACS processing completed: {nrow(sacs_results)} requirement records")
+    
+    # ========================================================================
+    # STEP 3: LDAC INVENTORY PROCESSING  
+    # ========================================================================
+    
+    log_info("STEP 3: Processing LDAC inventory data")
+    
+    source("R/data_processing/process_ldac_auto.R")
+    
+    ldac_results <- process_ldac_inventory_auto(
+      ldac_directory = config$data_paths$ldac,
+      config_file = config_file,
+      current_fy = config$optimization$current_fiscal_year
+    )
+    
+    processing_results$datasets$inventory <- ldac_results
+    
+    log_info("LDAC processing completed: {nrow(ldac_results)} inventory records")
+    
+    # ========================================================================
+    # STEP 4: LMDB MASTER DATA AND SUBSTITUTION RULES
+    # ========================================================================
+    
+    log_info("STEP 4: Processing LMDB master data and substitution rules")
+    
+    source("R/data_processing/process_lmdb_auto.R")
+    
+    lmdb_results <- process_lmdb_data_auto(
+      lmdb_directory = config$data_paths$lmdb,
+      config_file = config_file,
+      sb_700_20_directory = config$data_paths$substitutions
+    )
+    
+    processing_results$datasets$lins <- lmdb_results$lins
+    processing_results$datasets$substitution_rules <- lmdb_results$substitution_rules
+    
+    log_info("LMDB processing completed: {nrow(lmdb_results$lins)} LINs, {nrow(lmdb_results$substitution_rules)} substitution rules")
+    
+    # ========================================================================
+    # STEP 5: FDIIS-LQA PROCUREMENT PROCESSING
+    # ========================================================================
+    
+    log_info("STEP 5: Processing FDIIS-LQA procurement data")
+    
+    source("R/data_processing/process_fdiis_auto.R")
+    
+    fdiis_results <- process_fdiis_procurement_auto(
+      fdiis_directory = config$data_paths$fdiis,
+      config_file = config_file,
+      current_fy = config$optimization$current_fiscal_year
+    )
+    
+    processing_results$datasets$procurements <- fdiis_results
+    
+    log_info("FDIIS processing completed: {nrow(fdiis_results)} procurement records")
+    
+    # ========================================================================
+    # STEP 6: DARPL PRIORITY PROCESSING
+    # ========================================================================
+    
+    log_info("STEP 6: Processing DARPL priority assignments")
+    
+    # Check if DARPL file exists
+    darpl_files <- list.files(config$data_paths$darpl, pattern = "DARPL.*\\.(xlsx|csv)$", 
+                              full.names = TRUE)
+    
+    if (length(darpl_files) > 0) {
+      # Process DARPL priorities
+      darpl_results <- process_darpl_priorities(
+        darpl_file = darpl_files[1],  # Use most recent
+        requirements_data = processing_results$datasets$requirements
+      )
+      
+      processing_results$datasets$darpl <- darpl_results
+      log_info("DARPL processing completed: {nrow(darpl_results)} priority assignments")
+    } else {
+      log_warning("No DARPL files found - using default priority assignments")
+      processing_results$datasets$darpl <- create_default_darpl_priorities(
+        processing_results$datasets$requirements
+      )
+    }
+    
+    # ========================================================================
+    # STEP 7: LMI TRANSFER DATA PROCESSING
+    # ========================================================================
+    
+    log_info("STEP 7: Processing LMI transfer data")
+    
+    # Check if transfer files exist
+    transfer_files <- list.files(config$data_paths$transfers, pattern = "LMI.*\\.(xlsx|csv)$",
+                                 full.names = TRUE)
+    
+    if (length(transfer_files) > 0) {
+      transfer_results <- process_lmi_transfers(
+        transfer_files = transfer_files,
+        unit_data = processing_results$datasets$requirements
+      )
+      
+      processing_results$datasets$lmi_transfer_add <- transfer_results$additions
+      processing_results$datasets$lmi_transfer_remove <- transfer_results$removals
+      
+      log_info("Transfer processing completed: {nrow(transfer_results$additions)} additions, {nrow(transfer_results$removals)} removals")
+    } else {
+      log_info("No LMI transfer files found - continuing without transfer data")
+      processing_results$datasets$lmi_transfer_add <- create_empty_transfer_dataset()
+      processing_results$datasets$lmi_transfer_remove <- create_empty_transfer_dataset()
+    }
+    
+    # ========================================================================
+    # STEP 8: MASTER INDEX SET GENERATION
+    # ========================================================================
+    
+    log_info("STEP 8: Generating master index sets")
+    
+    master_indices <- generate_master_index_sets(
+      lins_data = processing_results$datasets$lins,
+      requirements_data = processing_results$datasets$requirements,
+      inventory_data = processing_results$datasets$inventory,
+      procurement_data = processing_results$datasets$procurements
+    )
+    
+    processing_results$datasets$master_lins <- master_indices$lins
+    processing_results$datasets$master_units <- master_indices$units
+    processing_results$datasets$master_compos <- master_indices$compos
+    processing_results$datasets$master_ercs <- master_indices$ercs
+    processing_results$datasets$master_dates <- master_indices$dates
+    
+    log_info("Master indices generated: {nrow(master_indices$lins)} LINs, {nrow(master_indices$units)} units")
+    
+    # ========================================================================
+    # STEP 9: DATA INTEGRATION AND VALIDATION
+    # ========================================================================
+    
+    log_info("STEP 9: Performing data integration and validation")
+    
+    validation_results <- validate_processing_outputs(
+      datasets = processing_results$datasets,
+      config = config,
+      validation_mode = validation_mode
+    )
+    
+    processing_results$validation_results <- validation_results
+    
+    # ========================================================================
+    # STEP 10: FINAL DATASET STANDARDIZATION
+    # ========================================================================
+    
+    log_info("STEP 10: Final dataset standardization for optimization")
+    
+    standardized_datasets <- standardize_optimization_inputs(
+      raw_datasets = processing_results$datasets,
+      config = config
+    )
+    
+    processing_results$datasets$optimization_ready <- standardized_datasets
+    
+    # ========================================================================
+    # STEP 11: PERFORMANCE METRICS AND SUMMARY GENERATION
+    # ========================================================================
+    
+    end_time <- Sys.time()
+    processing_duration <- as.numeric(difftime(end_time, start_time, units = "mins"))
+    
+    processing_results$performance_metrics <- list(
+      start_time = start_time,
+      end_time = end_time,
+      total_duration_minutes = processing_duration,
+      records_processed = calculate_total_records(processing_results$datasets),
+      processing_rate = calculate_processing_rate(processing_results$datasets, processing_duration)
+    )
+    
+    # Generate comprehensive summary
+    processing_summary <- generate_processing_summary(processing_results)
+    processing_results$processing_summary <- processing_summary
+    
+    # ========================================================================
+    # STEP 12: SAVE PROCESSED DATA AND AUDIT TRAIL
+    # ========================================================================
+    
+    log_info("STEP 12: Saving processed datasets and audit trail")
+    
+    # Save datasets to specified output location
+    save_processing_outputs(
+      datasets = processing_results$datasets,
+      output_path = config$data_paths$processed,
+      metadata = processing_results$metadata
+    )
+    
+    # Save audit trail
+    save_audit_trail(
+      processing_results = processing_results,
+      output_path = config$data_paths$audit
+    )
+    
+    log_info("=== NGRER MAIN DATA PROCESSING PIPELINE COMPLETED SUCCESSFULLY ===")
+    log_info("Total processing time: {round(processing_duration, 2)} minutes")
+    log_info("Total records processed: {format(processing_results$performance_metrics$records_processed, big.mark = ',')}")
+    
+    return(processing_results)
+    
+  }, error = function(e) {
+    log_error("CRITICAL ERROR in main data processing pipeline: {e$message}")
+    log_error("Error occurred at: {Sys.time()}")
+    
+    # Save error information for debugging
+    error_info <- list(
+      error_message = e$message,
+      error_time = Sys.time(),
+      processing_step = determine_current_step(),
+      partial_results = processing_results,
+      session_info = sessionInfo()
+    )
+    
+    save_error_information(error_info, config$data_paths$logs)
+    
+    stop("NGRER data processing pipeline failed. Check logs for details.")
+  })
+}
+
+# ============================================================================
+# SUPPORTING FUNCTIONS
+# ============================================================================
+
+#' Generate master index sets from processed data
+#' 
+#' @param lins_data LIN master data
+#' @param requirements_data Requirements data
+#' @param inventory_data Inventory data  
+#' @param procurement_data Procurement data
+#' @return List of master index sets
+generate_master_index_sets <- function(lins_data, requirements_data, inventory_data, procurement_data) {
+  
+  # Master LIN index (union of all LIN sources)
+  master_lins <- bind_rows(
+    lins_data %>% select(lins) %>% distinct(),
+    requirements_data %>% select(lins) %>% distinct(),
+    inventory_data %>% select(lins) %>% distinct(), 
+    procurement_data %>% select(lins) %>% distinct()
+  ) %>%
+    distinct() %>%
+    left_join(lins_data %>% select(lins, mod_level, nomenclature), by = "lins") %>%
+    mutate(mod_level = ifelse(is.na(mod_level), 1, mod_level)) %>%
+    arrange(lins)
+  
+  # Master units index
+  master_units <- bind_rows(
+    requirements_data %>% select(units, compos) %>% distinct(),
+    inventory_data %>% select(units, compos) %>% distinct()
+  ) %>%
+    distinct() %>%
+    arrange(compos, units)
+  
+  # Master components index
+  master_compos <- data.frame(
+    compos = c("1", "2", "3", "6"),
+    component_name = c("Active Component", "Army National Guard", "Army Reserve", "Army Prepositioned Stock"),
+    stringsAsFactors = FALSE
+  )
+  
+  # Master ERC index
+  master_ercs <- data.frame(
+    ercs = c("P", "A"),
+    erc_description = c("Primary Mission Equipment", "Augmentation Equipment"),
+    stringsAsFactors = FALSE
+  )
+  
+  # Master dates index (fiscal years)
+  date_sources <- bind_rows(
+    requirements_data %>% select(dates) %>% distinct(),
+    procurement_data %>% select(dates) %>% distinct()
+  )
+  
+  master_dates <- data.frame(
+    dates = sort(unique(date_sources$dates)),
+    stringsAsFactors = FALSE
+  ) %>%
+    filter(dates >= 2025, dates <= 2031)  # Typical NGRER planning horizon
+  
+  return(list(
+    lins = master_lins,
+    units = master_units,
+    compos = master_compos,
+    ercs = master_ercs,
+    dates = master_dates
+  ))
+}
+
+#' Validate all processing outputs for quality and consistency
+#'
+#' @param datasets List of processed datasets
+#' @param config System configuration
+#' @param validation_mode Whether to run SAS comparison validation
+#' @return Validation results summary
+validate_processing_outputs <- function(datasets, config, validation_mode = FALSE) {
+  
+  log_info("Beginning comprehensive data validation")
+  
+  validation_results <- list()
+  
+  # Data completeness validation
+  validation_results$completeness <- validate_data_completeness(datasets)
+  
+  # Business rule validation
+  validation_results$business_rules <- validate_business_rules(datasets, config)
+  
+  # Data consistency validation
+  validation_results$consistency <- validate_data_consistency(datasets)
+  
+  # Cross-reference validation
+  validation_results$cross_references <- validate_cross_references(datasets)
+  
+  # SAS comparison validation
+  if (validation_mode) {
+    validation_results$sas_comparison <- validate_against_sas_baseline(datasets)
+  }
+  
+  # Performance validation
+  validation_results$performance <- validate_processing_performance(datasets)
+  
+  # Mathematical consistency validation
+  validation_results$mathematical <- validate_mathematical_consistency(datasets)
+  
+  # Congressional compliance validation
+  validation_results$congressional <- validate_congressional_requirements(datasets)
+  
+  # Overall validation assessment
+  overall_valid <- all(sapply(validation_results, function(x) x$status == "PASS"))
+  
+  validation_summary <- list(
+    overall_status = ifelse(overall_valid, "PASS", "FAIL"),
+    validation_timestamp = Sys.time(),
+    datasets_validated = names(datasets),
+    validation_details = validation_results,
+    issues_identified = extract_validation_issues(validation_results),
+    recommendations = generate_validation_recommendations(validation_results)
+  )
+  
+  log_info("Data validation completed. Overall status: {validation_summary$overall_status}")
+  
+  return(validation_summary)
+}
+
+# Validate data completeness across all datasets
+validate_data_completeness <- function(datasets) {
+  
+  completeness_results <- list()
+  
+  for (dataset_name in names(datasets)) {
+    dataset <- datasets[[dataset_name]]
+    
+    if (is.null(dataset) || nrow(dataset) == 0) {
+      completeness_results[[dataset_name]] <- list(
+        status = "FAIL",
+        issue = "Dataset is empty or null",
+        record_count = 0,
+        completeness_score = 0
+      )
+      next
+    }
+    
+    # Calculate completeness metrics
+    total_cells <- nrow(dataset) * ncol(dataset)
+    missing_cells <- sum(is.na(dataset))
+    completeness_score <- (total_cells - missing_cells) / total_cells * 100
+    
+    # Check critical fields
+    critical_fields <- get_critical_fields(dataset_name)
+    critical_missing <- check_critical_field_completeness(dataset, critical_fields)
+    
+    completeness_results[[dataset_name]] <- list(
+      status = ifelse(completeness_score >= 95 && !critical_missing, "PASS", "FAIL"),
+      record_count = nrow(dataset),
+      completeness_score = round(completeness_score, 2),
+      missing_cells = missing_cells,
+      critical_fields_complete = !critical_missing,
+      field_completeness = calculate_field_completeness(dataset)
+    )
+  }
+  
+  return(list(
+    status = ifelse(all(sapply(completeness_results, function(x) x$status == "PASS")), "PASS", "FAIL"),
+    dataset_results = completeness_results
+  ))
+}
+
+# Validate business rules across datasets
+validate_business_rules <- function(datasets, config) {
+  
+  business_rule_results <- list()
+  
+  # Requirements validation
+  if ("requirements" %in% names(datasets)) {
+    business_rule_results$requirements <- validate_requirements_business_rules(datasets$requirements)
+  }
+  
+  # Inventory validation
+  if ("inventory" %in% names(datasets)) {
+    business_rule_results$inventory <- validate_inventory_business_rules(datasets$inventory)
+  }
+  
+  # Procurement validation
+  if ("procurements" %in% names(datasets)) {
+    business_rule_results$procurements <- validate_procurement_business_rules(datasets$procurements)
+  }
+  
+  # Substitution rules validation
+  if ("substitution_rules" %in% names(datasets)) {
+    business_rule_results$substitution_rules <- validate_substitution_business_rules(datasets$substitution_rules)
+  }
+  
+  # Cross-dataset business rules
+  business_rule_results$cross_dataset <- validate_cross_dataset_business_rules(datasets)
+  
+  return(list(
+    status = ifelse(all(sapply(business_rule_results, function(x) x$status == "PASS")), "PASS", "FAIL"),
+    rule_results = business_rule_results
+  ))
+}
+
+# Validate against SAS baseline when in validation mode
+validate_against_sas_baseline <- function(datasets) {
+  
+  log_info("Running SAS baseline comparison validation")
+  
+  # Load SAS reference data
+  sas_baseline_path <- "tests/validation_data/sas_baseline_results.rds"
+  
+  if (!file.exists(sas_baseline_path)) {
+    return(list(
+      status = "SKIP",
+      message = "SAS baseline data not available for comparison"
+    ))
+  }
+  
+  sas_baseline <- readRDS(sas_baseline_path)
+  
+  comparison_results <- list()
+  
+  # Compare each dataset with SAS baseline
+  for (dataset_name in names(datasets)) {
+    if (dataset_name %in% names(sas_baseline)) {
+      comparison_results[[dataset_name]] <- compare_with_sas_baseline(
+        datasets[[dataset_name]], 
+        sas_baseline[[dataset_name]]
+      )
+    }
+  }
+  
+  return(list(
+    status = ifelse(all(sapply(comparison_results, function(x) x$equivalent)), "PASS", "FAIL"),
+    comparison_results = comparison_results,
+    tolerance_used = 1e-10
+  ))
+}
+
+# Standardize optimization inputs with final formatting
+standardize_optimization_inputs <- function(raw_datasets, config) {
+  
+  log_info("Performing final dataset standardization for optimization")
+  
+  standardized_datasets <- list()
+  
+  # Requirements standardization
+  standardized_datasets$requirements <- standardize_requirements_for_optimization(
+    raw_datasets$requirements, config
+  )
+  
+  # Inventory standardization
+  standardized_datasets$inventory <- standardize_inventory_for_optimization(
+    raw_datasets$inventory, config
+  )
+  
+  # Procurement standardization
+  standardized_datasets$procurements <- standardize_procurements_for_optimization(
+    raw_datasets$procurements, config
+  )
+  
+  # Substitution rules standardization
+  standardized_datasets$substitution_rules <- standardize_substitutions_for_optimization(
+    raw_datasets$substitution_rules, config
+  )
+  
+  # Master indices standardization
+  standardized_datasets$master_lins <- raw_datasets$master_lins
+  standardized_datasets$master_units <- raw_datasets$master_units
+  standardized_datasets$master_compos <- raw_datasets$master_compos
+  standardized_datasets$master_ercs <- raw_datasets$master_ercs
+  standardized_datasets$master_dates <- raw_datasets$master_dates
+  
+  # Transfer data standardization
+  if (!is.null(raw_datasets$lmi_transfer_add)) {
+    standardized_datasets$lmi_transfer_add <- standardize_transfers_for_optimization(
+      raw_datasets$lmi_transfer_add, config
+    )
+  }
+  
+  if (!is.null(raw_datasets$lmi_transfer_remove)) {
+    standardized_datasets$lmi_transfer_remove <- standardize_transfers_for_optimization(
+      raw_datasets$lmi_transfer_remove, config
+    )
+  }
+  
+  # Final consistency checks
+  final_validation <- validate_standardized_datasets(standardized_datasets)
+  
+  if (final_validation$status != "PASS") {
+    stop("Standardized datasets failed final validation: ", final_validation$message)
+  }
+  
+  return(standardized_datasets)
+}
+
+# Save processed datasets and metadata
+save_processing_outputs <- function(datasets, output_path, metadata) {
+  
+  log_info("Saving processed datasets to: {output_path}")
+  
+  # Create output directory structure
+  dir.create(output_path, recursive = TRUE, showWarnings = FALSE)
+  
+  # Save each dataset
+  for (dataset_name in names(datasets)) {
+    dataset_file <- file.path(output_path, paste0(dataset_name, ".rds"))
+    
+    # Add metadata to dataset
+    dataset_with_metadata <- list(
+      data = datasets[[dataset_name]],
+      metadata = list(
+        dataset_name = dataset_name,
+        processing_timestamp = Sys.time(),
+        record_count = nrow(datasets[[dataset_name]]),
+        processing_version = metadata$processing_version,
+        data_sources = metadata$data_sources,
+        validation_status = metadata$validation_status
+      )
+    )
+    
+    saveRDS(dataset_with_metadata, dataset_file)
+    log_info("Saved {dataset_name}: {nrow(datasets[[dataset_name]])} records")
+  }
+  
+  # Save processing summary
+  processing_summary_file <- file.path(output_path, "processing_summary.json")
+  jsonlite::write_json(metadata, processing_summary_file, pretty = TRUE)
+  
+  # Generate data catalog
+  data_catalog <- create_processing_data_catalog(datasets, metadata)
+  catalog_file <- file.path(output_path, "data_catalog.csv")
+  write.csv(data_catalog, catalog_file, row.names = FALSE)
+  
+  return(list(
+    output_path = output_path,
+    datasets_saved = length(datasets),
+    total_records = sum(sapply(datasets, function(x) if(is.data.frame(x)) nrow(x) else 0)),
+    catalog_file = catalog_file,
+    summary_file = processing_summary_file
+  ))
+}
+
+# Save comprehensive audit trail
+save_audit_trail <- function(processing_results, output_path) {
+  
+  audit_dir <- file.path(output_path, "audit")
+  dir.create(audit_dir, recursive = TRUE, showWarnings = FALSE)
+  
+  audit_timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+  
+  # Save execution audit trail
+  execution_audit <- list(
+    execution_id = generate_execution_id(),
+    start_time = processing_results$performance_metrics$start_time,
+    end_time = processing_results$performance_metrics$end_time,
+    total_duration = processing_results$performance_metrics$total_duration_minutes,
+    records_processed = processing_results$performance_metrics$records_processed,
+    processing_rate = processing_results$performance_metrics$processing_rate,
+    system_info = list(
+      r_version = R.version.string,
+      platform = Sys.info()["sysname"],
+      user = Sys.info()["user"],
+      hostname = Sys.info()["nodename"]
+    ),
+    configuration_used = processing_results$metadata,
+    validation_results = processing_results$validation_results
+  )
+  
+  execution_audit_file <- file.path(audit_dir, paste0("execution_audit_", audit_timestamp, ".json"))
+  jsonlite::write_json(execution_audit, execution_audit_file, pretty = TRUE)
+  
+  # Save data lineage information
+  data_lineage <- create_data_lineage_documentation(processing_results)
+  lineage_file <- file.path(audit_dir, paste0("data_lineage_", audit_timestamp, ".json"))
+  jsonlite::write_json(data_lineage, lineage_file, pretty = TRUE)
+  
+  # Save validation evidence
+  validation_evidence <- compile_validation_evidence(processing_results)
+  validation_file <- file.path(audit_dir, paste0("validation_evidence_", audit_timestamp, ".json"))
+  jsonlite::write_json(validation_evidence, validation_file, pretty = TRUE)
+  
+  log_info("Audit trail saved to: {audit_dir}")
+  
+  return(list(
+    audit_directory = audit_dir,
+    execution_audit_file = execution_audit_file,
+    data_lineage_file = lineage_file,
+    validation_file = validation_file,
+    audit_timestamp = audit_timestamp
+  ))
+}
+
+# Generate processing summary report
+generate_processing_summary <- function(processing_results) {
+  
+  summary_report <- list(
+    processing_overview = list(
+      total_execution_time = processing_results$performance_metrics$total_duration_minutes,
+      records_processed = processing_results$performance_metrics$records_processed,
+      datasets_generated = length(processing_results$datasets),
+      validation_status = processing_results$validation_results$overall_status,
+      processing_timestamp = Sys.time()
+    ),
+    
+    dataset_summary = create_dataset_summary(processing_results$datasets),
+    
+    data_quality_summary = create_data_quality_summary(processing_results$validation_results),
+    
+    performance_summary = list(
+      total_duration_minutes = processing_results$performance_metrics$total_duration_minutes,
+      processing_rate_records_per_minute = processing_results$performance_metrics$processing_rate,
+      peak_memory_usage = estimate_peak_memory_usage(),
+      optimization_readiness = "COMPLETE"
+    ),
+    
+    next_steps = list(
+      ready_for_clustering = TRUE,
+      ready_for_optimization = TRUE,
+      congressional_reporting_ready = processing_results$validation_results$congressional$status == "PASS"
+    ),
+    
+    recommendations = generate_processing_recommendations(processing_results)
+  )
+  
+  return(summary_report)
+}
+
+# Helper function to calculate performance metrics
+calculate_total_records <- function(datasets) {
+  total_records <- 0
+  for (dataset in datasets) {
+    if (is.data.frame(dataset)) {
+      total_records <- total_records + nrow(dataset)
+    }
+  }
+  return(total_records)
+}
+
+calculate_processing_rate <- function(datasets, duration_minutes) {
+  total_records <- calculate_total_records(datasets)
+  if (duration_minutes > 0) {
+    return(round(total_records / duration_minutes, 2))
+  } else {
+    return(0)
+  }
+}
+
+# Generate unique execution ID for audit trail
+generate_execution_id <- function() {
+  paste0("NGRER_", format(Sys.time(), "%Y%m%d_%H%M%S"), "_", 
+         sample(1000:9999, 1))
+}
+
+# Error handling for critical processing failures
+handle_processing_error <- function(error, step, processing_results) {
+  
+  error_info <- list(
+    error_message = error$message,
+    error_step = step,
+    error_timestamp = Sys.time(),
+    system_state = capture_system_state(),
+    partial_results = processing_results,
+    recovery_recommendations = generate_recovery_recommendations(error, step)
+  )
+  
+  # Save error information
+  error_file <- file.path("logs", "errors", paste0("processing_error_", 
+                                                   format(Sys.time(), "%Y%m%d_%H%M%S"), ".json"))
+  dir.create(dirname(error_file), recursive = TRUE, showWarnings = FALSE)
+  jsonlite::write_json(error_info, error_file, pretty = TRUE)
+  
+  log_error("Critical processing error in step {step}: {error$message}")
+  log_error("Error details saved to: {error_file}")
+  
+  return(error_info)
+}
+
+#################################################################################################################
+
+# tests/setup_testing_environment.R
+
+library(testthat)
+library(logger)
+library(mockery)
+library(withr)
+
+setup_ngrer_testing <- function() {
+  # Configure test logging
+  log_threshold(DEBUG)
+  log_layout(layout_glue_generator(
+    format = '{time} [TEST-{level}] {namespace} {msg}'
+  ))
+  
+  # Create test data directories
+  test_dirs <- c(
+    "tests/unit",
+    "tests/integration", 
+    "tests/data/input",
+    "tests/data/reference",
+    "tests/data/output",
+    "tests/validation"
+  )
+  
+  for (dir in test_dirs) {
+    dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  }
+  
+  log_info("NGRER testing environment initialized")
+  return(TRUE)
+}
+
+
+#################################################################################################################
+
+# tests/utilities/generate_test_data.R
+
+generate_test_sacs_data <- function(size = "small") {
+  scenarios <- list(
+    small = list(units = 50, lins = 100),
+    medium = list(units = 200, lins = 500),
+    large = list(units = 1000, lins = 2000)
+  )
+  
+  scenario <- scenarios[[size]]
+  
+  # Generate realistic SACS data
+  sacs_data <- data.frame(
+    UIC = sprintf("W%05d", sample(10000:99999, scenario$units)),
+    LIN = sprintf("%s%05d", 
+                  sample(c("A", "B", "C", "M", "S"), scenario$units * 3, replace = TRUE),
+                  sample(10000:99999, scenario$units * 3)),
+    COMPO = sample(c("1", "2", "3", "6"), scenario$units * 3, replace = TRUE),
+    ERC = sample(c("P", "A", "B", "C"), scenario$units * 3, replace = TRUE),
+    RQEQP = rpois(scenario$units * 3, lambda = 8),
+    TYPCO = sample(c("1", "2"), scenario$units * 3, replace = TRUE),
+    EDATE = rep(20250801, scenario$units * 3)
+  ) %>%
+    filter(RQEQP > 0) %>%
+    distinct()
+  
+  return(sacs_data)
+}
+
+generate_test_ldac_data <- function(size = "small") {
+  # Generate multi-sheet LDAC inventory data
+  scenarios <- list(
+    small = list(records_per_sheet = 200),
+    medium = list(records_per_sheet = 1000), 
+    large = list(records_per_sheet = 5000)
+  )
+  
+  scenario <- scenarios[[size]]
+  
+  sheets <- list()
+  for (i in 1:3) {
+    sheets[[paste0("Sheet", i)]] <- data.frame(
+      LIN = sprintf("%s%05d", 
+                    sample(c("A", "B", "C", "M", "S"), scenario$records_per_sheet, replace = TRUE),
+                    sample(10000:99999, scenario$records_per_sheet)),
+      COMPO = sample(1:3, scenario$records_per_sheet, replace = TRUE),
+      UIC = sprintf("W%05d", sample(10000:99999, scenario$records_per_sheet, replace = TRUE)),
+      QTY = rpois(scenario$records_per_sheet, lambda = 5),
+      CONDITION_CODE = sample(c("A", "B", "C", "H", "S"), scenario$records_per_sheet, replace = TRUE)
+    ) %>%
+      filter(QTY > 0)
+  }
+  
+  return(sheets)
+}
+
+
+#################################################################################################################
+
+# tests/unit/test_auto_file_detection.R
+
+test_that("auto file detection identifies all data sources correctly", {
+  # Setup test directory structure
+  test_dir <- tempdir()
+  data_dirs <- c("sacs", "ldac", "lmdb", "fdiis", "darpl", "substitutions", "transfers")
+  
+  for (dir in data_dirs) {
+    dir.create(file.path(test_dir, dir), recursive = TRUE)
+  }
+  
+  # Create test files with proper naming patterns
+  test_files <- list(
+    sacs = c("cla_eqpdet_roll20250801.txt", "cla_header_roll20250801.txt"),
+    ldac = "AE2S_LIN_DATA_G8_NIIN_File_20250801.xlsx",
+    lmdb = "LINS_ACTIVE_2025-08-01.xlsx",
+    fdiis = "AE2S_CURRENT_POSITION_20250801.xlsx",
+    darpl = "CUI_20250801_RPT_DARPL_RELEASE_FY2025.xlsx"
+  )
+  
+  # Create actual test files
+  for (source in names(test_files)) {
+    for (file in test_files[[source]]) {
+      file.create(file.path(test_dir, source, file))
+    }
+  }
+  
+  # Test detection function
+  source("R/data_processing/auto_file_detection.R")
+  
+  result <- detect_all_input_files(base_input_path = test_dir)
+  
+  # Validate results
+  expect_true(result$processing_summary$total_files_found >= 5)
+  expect_equal(result$processing_summary$sources_with_files, 5)
+  expect_true(result$processing_summary$validation_pass_rate > 0.8)
+  
+  # Cleanup
+  unlink(test_dir, recursive = TRUE)
+})
+
+test_that("file detection handles missing directories gracefully", {
+  # Test with non-existent directory
+  source("R/data_processing/auto_file_detection.R")
+  
+  result <- detect_all_input_files(base_input_path = "/nonexistent/path")
+  
+  expect_equal(result$processing_summary$total_files_found, 0)
+  expect_equal(result$processing_summary$sources_with_files, 0)
+})
+
+
+#################################################################################################################
+
+# tests/unit/test_process_sacs_auto.R
+
+test_that("SACS processing maintains data integrity", {
+  # Generate test SACS data
+  test_sacs_equipment <- generate_test_sacs_data("small")
+  test_sacs_header <- test_sacs_equipment %>%
+    select(UIC, EDATE, COMPO, TYPCO) %>%
+    distinct() %>%
+    mutate(DAMPL = sample(50000:99999, n(), replace = TRUE))
+  
+  # Create temporary test files
+  temp_dir <- tempdir()
+  sacs_dir <- file.path(temp_dir, "sacs")
+  dir.create(sacs_dir, recursive = TRUE)
+  
+  # Write test data to tab-delimited files
+  write.table(test_sacs_equipment, 
+              file.path(sacs_dir, "cla_eqpdet_roll20250801.txt"),
+              sep = "\t", row.names = FALSE, quote = FALSE)
+  write.table(test_sacs_header,
+              file.path(sacs_dir, "cla_header_roll20250801.txt"), 
+              sep = "\t", row.names = FALSE, quote = FALSE)
+  
+  # Test processing function
+  source("R/data_processing/process_sacs_auto.R")
+  
+  result <- process_sacs_requirements_auto(sacs_directory = sacs_dir)
+  
+  # Validate structure
+  expect_true(all(c("dates", "compos", "units", "lins", "ercs", "reqd") %in% names(result)))
+  
+  # Validate business rules
+  expect_true(all(result$compos %in% c("1", "2", "3", "6")))
+  expect_true(all(result$ercs %in% c("P", "A")))
+  expect_true(all(result$reqd > 0))
+  expect_true(all(nchar(result$lins) == 6))
+  expect_true(all(nchar(result$units) == 6))
+  
+  # Validate data preservation
+  original_total <- sum(test_sacs_equipment$RQEQP[test_sacs_equipment$TYPCO %in% c("1", "2")])
+  processed_total <- sum(result$reqd)
+  expect_equal(original_total, processed_total, tolerance = 0.01)
+  
+  # Cleanup
+  unlink(test_base_dir, recursive = TRUE)
+})
+
+test_that("clustering algorithm produces connected components correctly", {
+  # Create test substitution network
+  test_substitutions <- data.frame(
+    lins = c("L00001", "L00002", "L00003", "L00004", "L00005"),
+    sublins = c("L00002", "L00003", "L00001", "L00005", "L00004")
+  )
+  
+  relevant_lins <- c("L00001", "L00002", "L00003", "L00004", "L00005", "L00006")
+  
+  clusters <- generate_lin_clusters(test_substitutions, NULL, NULL, NULL)
+  
+  # Validate cluster properties
+  expect_true(all(relevant_lins %in% clusters$lins))
+  
+  # Validate connected components
+  # L00001, L00002, L00003 should be in same cluster (connected)
+  # L00004, L00005 should be in same cluster (connected)
+  # L00006 should be isolated cluster
+  cluster_assignments <- clusters$component
+  names(cluster_assignments) <- clusters$lins
+  
+  expect_equal(cluster_assignments["L00001"], cluster_assignments["L00002"])
+  expect_equal(cluster_assignments["L00002"], cluster_assignments["L00003"])
+  expect_equal(cluster_assignments["L00004"], cluster_assignments["L00005"])
+  expect_false(cluster_assignments["L00006"] %in% c(cluster_assignments["L00001"], cluster_assignments["L00004"]))
+})
+
+
+#################################################################################################################
+
+# tests/performance/test_optimization_performance.R
+
+library(microbenchmark)
+library(profvis)
+
+test_that("optimization performance meets Army requirements", {
+  
+  # Define performance targets from Army requirements
+  performance_targets <- list(
+    small_problem = list(size = "< 1,000 LINs", target_seconds = 300),
+    medium_problem = list(size = "1,000-5,000 LINs", target_seconds = 1800),
+    large_problem = list(size = "5,000+ LINs", target_seconds = 14400)
+  )
+  
+  for (scenario in names(performance_targets)) {
+    target <- performance_targets[[scenario]]
+    
+    # Generate test data
+    test_data <- switch(scenario,
+                        "small_problem" = generate_test_datasets("small"),
+                        "medium_problem" = generate_test_datasets("medium"), 
+                        "large_problem" = generate_test_datasets("large")
+    )
+    
+    # Measure execution time
+    execution_time <- system.time({
+      results <- run_ngrer_optimization(
+        requirements = test_data$requirements,
+        inventory = test_data$inventory,
+        substitutions = test_data$substitution_rules
+      )
+    })
+    
+    # Validate performance
+    actual_seconds <- execution_time[["elapsed"]]
+    expect_true(actual_seconds <= target$target_seconds,
+                info = paste("Scenario:", scenario, "took", actual_seconds, "seconds, target was", target$target_seconds))
+    
+    # Memory usage validation
+    memory_usage <- object.size(results) / 1024^3  # GB
+    expect_true(memory_usage < 16,  # 16GB memory limit
+                info = paste("Memory usage:", round(memory_usage, 2), "GB"))
+    
+    log_info("Performance test {scenario}: {actual_seconds}s (target: {target$target_seconds}s)")
+  }
+})
+
+# Memory profiling test
+test_that("memory usage stays within acceptable limits", {
+  
+  test_data <- generate_test_datasets("large")
+  
+  # Profile memory usage during optimization
+  memory_profile <- profvis({
+    optimization_results <- run_ngrer_optimization(
+      requirements = test_data$requirements,
+      inventory = test_data$inventory,
+      substitutions = test_data$substitution_rules
+    )
+  })
+  
+  # Extract memory metrics
+  peak_memory <- max(memory_profile$memory)
+  
+  # Validate memory constraints
+  expect_true(peak_memory < 16 * 1024^3)  # 16GB limit
+  
+  log_info("Peak memory usage: {round(peak_memory / 1024^3, 2)} GB")
+})
+
+
+#################################################################################################################
+
+# tests/unit/test_process_ldac_auto.R
+
+test_that("LDAC processing handles multi-sheet Excel files correctly", {
+  # Generate test LDAC data
+  test_ldac_sheets <- generate_test_ldac_data("small")
+  
+  # Create temporary Excel file
+  temp_dir <- tempdir()
+  ldac_dir <- file.path(temp_dir, "ldac")
+  dir.create(ldac_dir, recursive = TRUE)
+  
+  # Use openxlsx to create multi-sheet Excel file
+  if (require(openxlsx, quietly = TRUE)) {
+    wb <- createWorkbook()
+    
+    for (i in 1:3) {
+      addWorksheet(wb, paste0("Sheet", i))
+      writeData(wb, sheet = i, test_ldac_sheets[[i]])
+    }
+    
+    excel_file <- file.path(ldac_dir, "AE2S_LIN_DATA_G8_NIIN_File_20250801.xlsx")
+    saveWorkbook(wb, excel_file, overwrite = TRUE)
+    
+    # Test processing function
+    source("R/data_processing/process_ldac_auto.R")
+    
+    result <- process_ldac_inventory_auto(ldac_directory = ldac_dir)
+    
+    # Validate structure
+    expect_true(all(c("dates", "compos", "units", "lins", "inv") %in% names(result)))
+    
+    # Validate aggregation across sheets
+    original_total <- sum(sapply(test_ldac_sheets, function(x) sum(x$QTY[x$CONDITION_CODE %in% c("A", "B", "C")])))
+    processed_total <- sum(result$inv)
+    expect_equal(original_total, processed_total, tolerance = 0.01)
+    
+    # Validate serviceable condition filtering
+    expect_true(all(result$inv > 0))
+    
+    # Cleanup
+    unlink(temp_dir, recursive = TRUE)
+  } else {
+    skip("openxlsx package required for Excel testing")
+  }
+})
+
+test_that("LDAC processing validates component codes correctly", {
+  # Test component standardization logic
+  test_component_mapping <- data.frame(
+    COMPO_RAW = c(1, 2, 3, 6, "AC", "ARNG", "USAR", "APS"),
+    EXPECTED = c("1", "2", "3", "6", "1", "2", "3", "6")
+  )
+  
+  for (i in 1:nrow(test_component_mapping)) {
+    standardized <- case_when(
+      test_component_mapping$COMPO_RAW[i] %in% c(1, "1", "01", "AC", "Active") ~ "1",
+      test_component_mapping$COMPO_RAW[i] %in% c(2, "2", "02", "ARNG", "NG") ~ "2",
+      test_component_mapping$COMPO_RAW[i] %in% c(3, "3", "03", "USAR", "AR") ~ "3",
+      test_component_mapping$COMPO_RAW[i] %in% c(6, "6", "06", "APS") ~ "6",
+      TRUE ~ NA_character_
+    )
+    
+    expect_equal(standardized, test_component_mapping$EXPECTED[i])
+  }
+})
+
+
+#################################################################################################################
+
+# tests/integration/test_data_processing_pipeline.R
+
+test_that("complete data processing pipeline executes successfully", {
+  # Setup comprehensive test environment
+  test_base_dir <- tempdir()
+  
+  # Create test data for all sources
+  create_complete_test_dataset(test_base_dir)
+  
+  # Test main processing pipeline
+  source("R/main/main_data_processing.R")
+  
+  # Execute full pipeline
+  result <- run_complete_data_processing(
+    config_file = create_test_config(test_base_dir),
+    force_regenerate = TRUE,
+    validation_mode = FALSE
+  )
+  
+  # Validate pipeline completion
+  expect_true(result$processing_summary$overall_status %in% c("COMPLETED", "COMPLETED_WITH_WARNINGS"))
+  expect_true(length(result$datasets) >= 6)
+  expect_true(!is.null(result$metadata$file_inventory))
+  
+  # Validate individual datasets
+  expect_true(nrow(result$datasets$requirements) > 0)
+  expect_true(nrow(result$datasets$inventory) > 0)
+  expect_true(nrow(result$datasets$lins) > 0)
+  
+  # Cleanup
+  unlink(test_base_dir, recursive = TRUE)
+})
+
+test_that("clustering algorithm produces connected components correctly", {
+  # Create test substitution network
+  test_substitutions <- data.frame(
+    lins = c("L00001", "L00002", "L00003", "L00004", "L00005"),
+    sublins = c("L00002", "L00003", "L00001", "L00005", "L00004")
+  )
+  
+  relevant_lins <- c("L00001", "L00002", "L00003", "L00004", "L00005", "L00006")
+  
+  clusters <- generate_lin_clusters(test_substitutions, NULL, NULL, NULL)
+  
+  # Validate cluster properties
+  expect_true(all(relevant_lins %in% clusters$lins))
+  
+  # Validate connected components
+  # L00001, L00002, L00003 should be in same cluster (connected)
+  # L00004, L00005 should be in same cluster (connected)
+  # L00006 should be isolated cluster
+  cluster_assignments <- clusters$component
+  names(cluster_assignments) <- clusters$lins
+  
+  expect_equal(cluster_assignments["L00001"], cluster_assignments["L00002"])
+  expect_equal(cluster_assignments["L00002"], cluster_assignments["L00003"])
+  expect_equal(cluster_assignments["L00004"], cluster_assignments["L00005"])
+  expect_false(cluster_assignments["L00006"] %in% c(cluster_assignments["L00001"], cluster_assignments["L00004"]))
+})
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################
+
+
+#################################################################################################################

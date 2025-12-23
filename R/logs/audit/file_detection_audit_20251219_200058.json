@@ -1,0 +1,159 @@
+{
+  "audit_timestamp": ["2025-12-19 20:00:58"],
+  "audit_id": ["NGRER_AUDIT_20251219_200058_8893"],
+  "base_path": ["../data/input"],
+  "detection_summary": {
+    "total_data_sources": [6],
+    "sources_with_files": [6],
+    "total_files_found": [8],
+    "valid_files_found": [0],
+    "validation_pass_rate": [0],
+    "processing_recommendation": ["REVIEW_DATA_QUALITY_ISSUES"]
+  },
+  "file_details": {
+    "sacs": {
+      "equipment": [
+        {
+          "source": "sacs",
+          "file_type": "equipment",
+          "file_name": "cla_eqpdet_roll_20241215.txt",
+          "full_path": "../data/input/sacs/cla_eqpdet_roll_20241215.txt",
+          "file_size_mb": 0,
+          "file_format": "TAB_DELIMITED",
+          "last_modified": "2025-12-19 20:00:57",
+          "extracted_date": "2024-12-15",
+          "date_format": "YYYY-MM-DD",
+          "validation_status": "WARNING",
+          "validation_message": "Validation failed: Incorrect column count for SACS file.",
+          "processing_priority": 1
+        }
+      ],
+      "header": [
+        {
+          "source": "sacs",
+          "file_type": "header",
+          "file_name": "cla_header_roll_20241215.txt",
+          "full_path": "../data/input/sacs/cla_header_roll_20241215.txt",
+          "file_size_mb": 0,
+          "file_format": "TAB_DELIMITED",
+          "last_modified": "2025-12-19 20:00:57",
+          "extracted_date": "2024-12-15",
+          "date_format": "YYYY-MM-DD",
+          "validation_status": "WARNING",
+          "validation_message": "Validation failed: Incorrect column count for SACS file.",
+          "processing_priority": 1
+        }
+      ]
+    },
+    "lmdb": {
+      "master": [
+        {
+          "source": "lmdb",
+          "file_type": "master",
+          "file_name": "LINS_ACTIVE_12-15-24.xlsx",
+          "full_path": "../data/input/lmdb/LINS_ACTIVE_12-15-24.xlsx",
+          "file_size_mb": 0,
+          "file_format": "EXCEL_WORKBOOK",
+          "last_modified": "2025-12-19 20:00:57",
+          "extracted_date": "2024-12-15",
+          "date_format": "YYYY-MM-DD",
+          "validation_status": "WARNING",
+          "validation_message": "Validation error during format check: zip file '/projects/c1062044060/ngrer_sas_to_r_migration/ngrer_optimization/data/input/lmdb/LINS_ACTIVE_12-15-24.xlsx' cannot be opened",
+          "processing_priority": 1
+        },
+        {
+          "source": "lmdb",
+          "file_type": "master",
+          "file_name": "LINS_ACTIVE_20241215.xlsx",
+          "full_path": "../data/input/lmdb/LINS_ACTIVE_20241215.xlsx",
+          "file_size_mb": 0,
+          "file_format": "EXCEL_WORKBOOK",
+          "last_modified": "2025-12-19 20:00:57",
+          "extracted_date": "2024-12-15",
+          "date_format": "YYYY-MM-DD",
+          "validation_status": "WARNING",
+          "validation_message": "Validation error during format check: zip file '/projects/c1062044060/ngrer_sas_to_r_migration/ngrer_optimization/data/input/lmdb/LINS_ACTIVE_20241215.xlsx' cannot be opened",
+          "processing_priority": 1
+        }
+      ]
+    },
+    "fdiis": {
+      "procurement": [
+        {
+          "source": "fdiis",
+          "file_type": "procurement",
+          "file_name": "AE2S_CURRENT_POSITION_20241215.xlsx",
+          "full_path": "../data/input/fdiis/AE2S_CURRENT_POSITION_20241215.xlsx",
+          "file_size_mb": 0,
+          "file_format": "EXCEL_WORKBOOK",
+          "last_modified": "2025-12-19 20:00:57",
+          "extracted_date": "2024-12-15",
+          "date_format": "YYYY-MM-DD",
+          "validation_status": "WARNING",
+          "validation_message": "Validation warning: File size is suspiciously small (< 1KB).",
+          "processing_priority": 1
+        }
+      ]
+    },
+    "darpl": {
+      "priorities": [
+        {
+          "source": "darpl",
+          "file_type": "priorities",
+          "file_name": "CUI_TEST_RPT_DARPL_RELEASE_20241215.xlsx",
+          "full_path": "../data/input/darpl/CUI_TEST_RPT_DARPL_RELEASE_20241215.xlsx",
+          "file_size_mb": 0,
+          "file_format": "EXCEL_WORKBOOK",
+          "last_modified": "2025-12-19 20:00:57",
+          "extracted_date": "2024-12-15",
+          "date_format": "YYYY-MM-DD",
+          "validation_status": "WARNING",
+          "validation_message": "Validation warning: File size is suspiciously small (< 1KB).",
+          "processing_priority": 1
+        }
+      ]
+    },
+    "substitutions": {
+      "sb_700_20_h": [
+        {
+          "source": "substitutions",
+          "file_type": "sb_700_20_h",
+          "file_name": "SB_700_20_APPENDIX_H_20241215.xlsx",
+          "full_path": "../data/input/substitutions/SB_700_20_APPENDIX_H_20241215.xlsx",
+          "file_size_mb": 0,
+          "file_format": "EXCEL_WORKBOOK",
+          "last_modified": "2025-12-19 20:00:57",
+          "extracted_date": "2024-12-15",
+          "date_format": "YYYY-MM-DD",
+          "validation_status": "WARNING",
+          "validation_message": "Validation warning: File size is suspiciously small (< 1KB).",
+          "processing_priority": 1
+        }
+      ]
+    },
+    "transfers": {
+      "lmi_dst": [
+        {
+          "source": "transfers",
+          "file_type": "lmi_dst",
+          "file_name": "LMI_DST_PSDs_20241215.xlsx",
+          "full_path": "../data/input/transfers/LMI_DST_PSDs_20241215.xlsx",
+          "file_size_mb": 0,
+          "file_format": "EXCEL_WORKBOOK",
+          "last_modified": "2025-12-19 20:00:57",
+          "extracted_date": "2024-12-15",
+          "date_format": "YYYY-MM-DD",
+          "validation_status": "WARNING",
+          "validation_message": "Validation warning: File size is suspiciously small (< 1KB).",
+          "processing_priority": 1
+        }
+      ]
+    }
+  },
+  "system_info": {
+    "r_version": ["R version 4.4.1 (2024-06-14)"],
+    "platform": ["Linux"],
+    "user": ["c1062044060"],
+    "working_directory": ["/projects/c1062044060/ngrer_sas_to_r_migration/ngrer_optimization/R"]
+  }
+}

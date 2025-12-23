@@ -1,0 +1,18 @@
+{
+  "start_time": "2025-12-19 17:45:02",
+  "input_file": {
+    "filename": "LINS_ACTIVE_2025-08-11.xlsx",
+    "total_rows_read": 4004
+  },
+  "output_file": {
+    "total_lins": 4004,
+    "active_lins": 4004,
+    "total_puc_value": 3560773473.28
+  },
+  "substitution_rules": {
+    "total_rules_found": 453,
+    "lins_with_substitutes": 295
+  },
+  "end_time": "2025-12-19 17:45:02",
+  "elapsed_time_seconds": 0.1318
+}

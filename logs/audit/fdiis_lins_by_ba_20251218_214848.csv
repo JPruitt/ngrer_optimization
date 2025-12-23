@@ -1,0 +1,33 @@
+BA,BA_DESC,unique_lin_count
+01,Aircraft,12
+01,Ammunition,6
+01,Basic Research,1
+01,Chem Agents - O&M,1
+01,Operating Forces,2
+01,Reserve Component Training and Support,1
+01,Tactical and Support Vehicles,58
+01,Tracked Combat Vehicles,29
+02,Ammunition production base support,1
+02,Applied Research,1
+02,Chem Agents - RDT&E,1
+02,Communications and Electronics Equipment,164
+02,Modification of Aircraft,12
+02,Other Missiles,24
+02,Weapons and Other Combat Vehicles,24
+03,Advanced Technology Development,1
+03,Modification of Missiles,9
+03,Other Support Equipment,357
+03,Training and Recruiting,1
+04,Administration and Servicewide Activities,1
+04,Advanced Component Development & Prototypes,2
+04,Spare and repair parts,14
+04,Spares and Repair Parts,1
+04,Support Equipment and Facilities,12
+05,Support equipment and facilities,1
+05,System Development & Demonstration,5
+06,Agile Portfolio Management,18
+06,Operations,1
+06,RDT&E Management Support,1
+07,Leasing,1
+07,Operational Systems Development,1
+09,Agile RDT&E Portfolio Management,1

@@ -1,0 +1,66 @@
+{
+  "start_time": "2025-12-19 17:45:15",
+  "input_file": {
+    "filename": "LMI_DST_PSDs 8-7-25.xlsx",
+    "total_rows_read": 6085
+  },
+  "output_file": {
+    "total_records": 6085,
+    "total_quantity": 114882,
+    "total_value": 7670031852.81,
+    "unique_lins": 203,
+    "unique_to_uics": 3722,
+    "vetting_status_counts": [
+      {
+        "vetting_status": "DST APPROVED",
+        "n": 5266
+      },
+      {
+        "vetting_status": "VETTING OPEN",
+        "n": 742
+      },
+      {
+        "vetting_status": "DST DIRECTED",
+        "n": 77
+      }
+    ],
+    "from_compo_counts": [
+      {
+        "final_from_compo": "1",
+        "n": 3469
+      },
+      {
+        "final_from_compo": "2",
+        "n": 2022
+      },
+      {
+        "final_from_compo": "3",
+        "n": 364
+      },
+      {
+        "final_from_compo": "6",
+        "n": 230
+      }
+    ],
+    "to_compo_counts": [
+      {
+        "to_compo_code": "1",
+        "n": 3485
+      },
+      {
+        "to_compo_code": "2",
+        "n": 2022
+      },
+      {
+        "to_compo_code": "3",
+        "n": 345
+      },
+      {
+        "to_compo_code": "6",
+        "n": 233
+      }
+    ]
+  },
+  "end_time": "2025-12-19 17:45:15",
+  "elapsed_time_seconds": 0.3939
+}
